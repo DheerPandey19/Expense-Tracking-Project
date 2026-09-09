@@ -1,0 +1,7 @@
+.venv/
+__pycache__/
+*.pyc
+.env
+expense_tracker.db
+node_modules/
+dist/

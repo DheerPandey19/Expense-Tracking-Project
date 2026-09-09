@@ -1,27 +1,27 @@
-from pathlib import Path
+from collections.abc import Generator
 
-from sqlalchemy import create_engine
-from sqlalchemy.orm import Session, sessionmaker
+from sqlalchemy import create_engine, text
+from sqlalchemy.orm import DeclarativeBase, Session, sessionmaker
 
-from app.models import Base
+from app.config import settings
 
-DB_PATH = Path(__file__).resolve().parent.parent / "expense_tracker.db"
-DATABASE_URL = f"sqlite:///{DB_PATH}"
-
-engine = create_engine(
-    DATABASE_URL,
-    connect_args={"check_same_thread": False},
-)
+engine = create_engine(settings.database_url)
 SessionLocal = sessionmaker(bind=engine, autoflush=False, autocommit=False)
 
 
-def init_db() -> None:
-    Base.metadata.create_all(bind=engine)
+class Base(DeclarativeBase):
+    pass
 
 
-def get_db():
+def get_db() -> Generator[Session, None, None]:
     db = SessionLocal()
     try:
         yield db
     finally:
         db.close()
+
+
+def ping_db() -> bool:
+    with engine.connect() as conn:
+        conn.execute(text("SELECT 1"))
+    return True
