@@ -33,6 +33,18 @@ export type Summary = {
   by_category: CategoryTotal[];
 };
 
+export type ExpenseDraft = {
+  amount: number;
+  category_id: number | null;
+  date: string | null;
+  note: string;
+  confidence: string;
+};
+
+export type ParseOut = {
+  drafts: ExpenseDraft[];
+};
+
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const res = await fetch(`${API_BASE}${path}`, {
     headers: { "Content-Type": "application/json", ...(init?.headers ?? {}) },
@@ -77,4 +89,11 @@ export function deleteExpense(id: number) {
 
 export function getSummary() {
   return request<Summary>("/api/summary");
+}
+
+export function parseExpense(text: string) {
+  return request<ParseOut>("/api/parse", {
+    method: "POST",
+    body: JSON.stringify({ text }),
+  });
 }

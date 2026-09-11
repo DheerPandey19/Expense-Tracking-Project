@@ -83,3 +83,31 @@ section {
   cursor: pointer;
   flex-shrink: 0;
 }
+
+.draft {
+  display: grid;
+  gap: 0.5rem;
+  margin-top: 1rem;
+  padding: 0.75rem;
+  border: 1px solid #ccc;
+  border-radius: 4px;
+  background: #fff;
+}
+
+.draft label {
+  display: grid;
+  gap: 0.25rem;
+  font-size: 0.9rem;
+}
+
+.draft input,
+.draft select,
+.draft button {
+  font: inherit;
+  padding: 0.4rem 0.5rem;
+}
+
+.draft button {
+  width: fit-content;
+  cursor: pointer;
+}

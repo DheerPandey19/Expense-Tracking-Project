@@ -38,3 +38,19 @@ class CategoryTotal(BaseModel):
 class SummaryOut(BaseModel):
     total_spend: float
     by_category: list[CategoryTotal]
+
+
+class ParseIn(BaseModel):
+    text: str = Field(min_length=1, max_length=500)
+
+
+class ExpenseDraft(BaseModel):
+    amount: float = Field(gt=0)
+    category_id: int | None = None
+    date: Date | None = None
+    note: str = ""
+    confidence: str = "low"
+
+
+class ParseOut(BaseModel):
+    drafts: list[ExpenseDraft]

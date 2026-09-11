@@ -8,11 +8,15 @@ from sqlalchemy.orm import Session
 
 from app.db import Base, engine, get_db, ping_db
 from app.models import Category, Expense  # noqa: F401
+from app.parse import parse_expenses
 from app.schemas import (
     CategoryOut,
     CategoryTotal,
     ExpenseCreate,
+    ExpenseDraft,
     ExpenseOut,
+    ParseIn,
+    ParseOut,
     SummaryOut,
 )
 from app.seed import seed_categories
@@ -123,3 +127,11 @@ def summary(db: Session = Depends(get_db)) -> SummaryOut:
             CategoryTotal(category_id=r[0], name=r[1], total=float(r[2])) for r in rows
         ],
     )
+
+
+@app.post("/api/parse", response_model=ParseOut)
+def parse_expense_text(body: ParseIn, db: Session = Depends(get_db)) -> ParseOut:
+    categories = list(db.scalars(select(Category).order_by(Category.id)).all())
+    cat_dicts = [{"id": c.id, "name": c.name} for c in categories]
+    raw = parse_expenses(body.text, cat_dicts)
+    return ParseOut(drafts=[ExpenseDraft(**d) for d in raw])

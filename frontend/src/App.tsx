@@ -6,8 +6,9 @@ import {
   getCategories,
   getExpenses,
   getSummary,
+  parseExpense,
 } from "./api";
-import type { Category, Expense, Summary } from "./api";
+import type { Category, Expense, ExpenseDraft, Summary } from "./api";
 import "./App.css";
 
 function formatMoney(n: number) {
@@ -29,6 +30,10 @@ export default function App() {
   const [amount, setAmount] = useState("");
   const [note, setNote] = useState("");
   const [date, setDate] = useState("");
+
+  const [chatText, setChatText] = useState("");
+  const [drafts, setDrafts] = useState<ExpenseDraft[]>([]);
+  const [parsing, setParsing] = useState(false);
 
   const refresh = useCallback(async () => {
     const [cats, exps, sum] = await Promise.all([
@@ -60,6 +65,56 @@ export default function App() {
       cancelled = true;
     };
   }, [refresh]);
+
+  async function onParse(e: FormEvent) {
+    e.preventDefault();
+    if (!chatText.trim()) return;
+    setParsing(true);
+    setError(null);
+    try {
+      const res = await parseExpense(chatText.trim());
+      if (res.drafts.length === 0) {
+        setError("Could not find an amount in that message.");
+        setDrafts([]);
+      } else {
+        setDrafts(res.drafts);
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Parse failed");
+    } finally {
+      setParsing(false);
+    }
+  }
+
+  function updateDraft(index: number, patch: Partial<ExpenseDraft>) {
+    setDrafts((prev) => prev.map((d, i) => (i === index ? { ...d, ...patch } : d)));
+  }
+
+  async function approveDraft(index: number) {
+    const d = drafts[index];
+    if (!d || d.category_id == null) {
+      setError("Pick a category before approving.");
+      return;
+    }
+    setError(null);
+    try {
+      await createExpense({
+        category_id: d.category_id,
+        amount: d.amount,
+        note: d.note,
+        date: d.date,
+      });
+      setDrafts((prev) => prev.filter((_, i) => i !== index));
+      setChatText("");
+      await refresh();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to save");
+    }
+  }
+
+  function rejectDraft(index: number) {
+    setDrafts((prev) => prev.filter((_, i) => i !== index));
+  }
 
   async function onSubmit(e: FormEvent) {
     e.preventDefault();
@@ -128,6 +183,83 @@ export default function App() {
         ) : (
           <p>No summary yet.</p>
         )}
+      </section>
+
+      <section>
+        <h2>Chat</h2>
+        <form className="form" onSubmit={onParse}>
+          <label>
+            What did you spend?
+            <input
+              type="text"
+              value={chatText}
+              onChange={(e) => setChatText(e.target.value)}
+              placeholder="e.g. swiggy 450 yesterday"
+            />
+          </label>
+          <button type="submit" disabled={parsing}>
+            {parsing ? "Parsing…" : "Parse"}
+          </button>
+        </form>
+
+        {drafts.map((d, i) => (
+          <div key={i} className="draft">
+            <strong>Review before saving</strong>
+            {(d.confidence === "low" || d.category_id == null) && (
+              <p className="error">Check category before approving</p>
+            )}
+            <label>
+              Amount
+              <input
+                type="number"
+                min="0.01"
+                step="0.01"
+                value={d.amount}
+                onChange={(e) => updateDraft(i, { amount: Number(e.target.value) })}
+              />
+            </label>
+            <label>
+              Category
+              <select
+                value={d.category_id ?? ""}
+                onChange={(e) =>
+                  updateDraft(i, {
+                    category_id: e.target.value ? Number(e.target.value) : null,
+                  })
+                }
+              >
+                <option value="">Select…</option>
+                {categories.map((c) => (
+                  <option key={c.id} value={c.id}>
+                    {c.name}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label>
+              Date
+              <input
+                type="date"
+                value={d.date ?? ""}
+                onChange={(e) => updateDraft(i, { date: e.target.value || null })}
+              />
+            </label>
+            <label>
+              Note
+              <input
+                type="text"
+                value={d.note}
+                onChange={(e) => updateDraft(i, { note: e.target.value })}
+              />
+            </label>
+            <button type="button" onClick={() => approveDraft(i)}>
+              Approve
+            </button>
+            <button type="button" onClick={() => rejectDraft(i)}>
+              Reject
+            </button>
+          </div>
+        ))}
       </section>
 
       <section>
