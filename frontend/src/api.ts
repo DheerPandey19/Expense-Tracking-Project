@@ -58,6 +58,22 @@ export type ParseOut = {
   drafts: ExpenseDraft[];
 };
 
+export type BudgetProgress = {
+  category_id: number;
+  category_name: string;
+  color: string;
+  limit: number;
+  spent: number;
+  remaining: number;
+  over: boolean;
+  pct: number;
+};
+
+export type BudgetUpsert = {
+  category_id: number;
+  amount: number;
+};
+
 function rangeQuery(range?: DateRange): string {
   if (!range) return "";
   const params = new URLSearchParams();
@@ -124,5 +140,22 @@ export function parseExpense(text: string) {
   return request<ParseOut>("/api/parse", {
     method: "POST",
     body: JSON.stringify({ text }),
+  });
+}
+
+export function getBudgets() {
+  return request<BudgetProgress[]>("/api/budgets");
+}
+
+export function upsertBudget(body: BudgetUpsert) {
+  return request<BudgetProgress>("/api/budgets", {
+    method: "PUT",
+    body: JSON.stringify(body),
+  });
+}
+
+export function deleteBudget(categoryId: number) {
+  return request<{ ok: boolean }>(`/api/budgets/${categoryId}`, {
+    method: "DELETE",
   });
 }

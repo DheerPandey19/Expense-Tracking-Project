@@ -62,3 +62,20 @@ class ExpenseDraft(BaseModel):
 
 class ParseOut(BaseModel):
     drafts: list[ExpenseDraft]
+
+
+class BudgetUpsert(BaseModel):
+    category_id: int
+    amount: float = Field(gt=0)
+
+
+class BudgetProgress(BaseModel):
+    category_id: int
+    category_name: str
+    color: str
+    limit: float
+    spent: float
+    remaining: float
+    over: bool
+    pct: float
+

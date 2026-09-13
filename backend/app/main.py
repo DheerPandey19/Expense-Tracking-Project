@@ -1,4 +1,5 @@
 from contextlib import asynccontextmanager
+from calendar import monthrange
 from datetime import date
 
 from fastapi import Depends, FastAPI, HTTPException, Query
@@ -7,9 +8,11 @@ from sqlalchemy import and_, func, select
 from sqlalchemy.orm import Session
 
 from app.db import Base, engine, get_db, ping_db
-from app.models import Category, Expense  # noqa: F401
+from app.models import Budget, Category, Expense  # noqa: F401
 from app.parse import parse_expenses
 from app.schemas import (
+    BudgetProgress,
+    BudgetUpsert,
     CategoryOut,
     CategoryTotal,
     ExpenseCreate,
@@ -203,3 +206,117 @@ def parse_expense_text(body: ParseIn, db: Session = Depends(get_db)) -> ParseOut
     cat_dicts = [{"id": c.id, "name": c.name} for c in categories]
     raw = parse_expenses(body.text, cat_dicts)
     return ParseOut(drafts=[ExpenseDraft(**d) for d in raw])
+
+
+def _month_bounds(year: int, month: int) -> tuple[date, date]:
+    last_day = monthrange(year, month)[1]
+    return date(year, month, 1), date(year, month, last_day)
+
+
+@app.get("/api/budgets", response_model=list[BudgetProgress])
+def list_budgets(
+    db: Session = Depends(get_db),
+    year: int | None = None,
+    month: int | None = None,
+) -> list[BudgetProgress]:
+    today = date.today()
+    y = year if year is not None else today.year
+    m = month if month is not None else today.month
+    if not (1 <= m <= 12):
+        raise HTTPException(status_code=400, detail="month must be 1–12")
+    if year is not None and year < 2000:
+        raise HTTPException(status_code=400, detail="year out of range")
+
+    start, end = _month_bounds(y, m)
+    budgets = list(
+        db.execute(
+            select(Budget, Category)
+            .join(Category, Category.id == Budget.category_id)
+            .order_by(Category.id)
+        ).all()
+    )
+    if not budgets:
+        return []
+
+    spent_rows = db.execute(
+        select(Expense.category_id, func.coalesce(func.sum(Expense.amount), 0.0))
+        .where(Expense.date >= start, Expense.date <= end)
+        .group_by(Expense.category_id)
+    ).all()
+    spent_map = {cid: float(total) for cid, total in spent_rows}
+
+    out: list[BudgetProgress] = []
+    for budget, category in budgets:
+        spent = spent_map.get(budget.category_id, 0.0)
+        limit = float(budget.amount)
+        remaining = limit - spent
+        pct = (spent / limit * 100.0) if limit > 0 else 0.0
+        out.append(
+            BudgetProgress(
+                category_id=category.id,
+                category_name=category.name,
+                color=category.color,
+                limit=limit,
+                spent=spent,
+                remaining=remaining,
+                over=spent > limit,
+                pct=round(pct, 1),
+            )
+        )
+    return out
+
+
+@app.put("/api/budgets", response_model=BudgetProgress)
+def upsert_budget(body: BudgetUpsert, db: Session = Depends(get_db)) -> BudgetProgress:
+    category = db.get(Category, body.category_id)
+    if not category:
+        raise HTTPException(status_code=404, detail="Category not found")
+
+    budget = db.scalar(
+        select(Budget).where(Budget.category_id == body.category_id)
+    )
+    if budget:
+        budget.amount = body.amount
+    else:
+        budget = Budget(category_id=body.category_id, amount=body.amount)
+        db.add(budget)
+
+    db.commit()
+    db.refresh(budget)
+
+    today = date.today()
+    start, end = _month_bounds(today.year, today.month)
+    spent = (
+        db.scalar(
+            select(func.coalesce(func.sum(Expense.amount), 0.0)).where(
+                Expense.category_id == body.category_id,
+                Expense.date >= start,
+                Expense.date <= end,
+            )
+        )
+        or 0.0
+    )
+    spent_f = float(spent)
+    limit = float(budget.amount)
+    remaining = limit - spent_f
+    pct = (spent_f / limit * 100.0) if limit > 0 else 0.0
+    return BudgetProgress(
+        category_id=category.id,
+        category_name=category.name,
+        color=category.color,
+        limit=limit,
+        spent=spent_f,
+        remaining=remaining,
+        over=spent_f > limit,
+        pct=round(pct, 1),
+    )
+
+
+@app.delete("/api/budgets/{category_id}")
+def delete_budget(category_id: int, db: Session = Depends(get_db)) -> dict[str, bool]:
+    budget = db.scalar(select(Budget).where(Budget.category_id == category_id))
+    if not budget:
+        raise HTTPException(status_code=404, detail="Budget not found")
+    db.delete(budget)
+    db.commit()
+    return {"ok": True}

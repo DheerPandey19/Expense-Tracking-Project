@@ -20,6 +20,7 @@ class Category(Base):
     color: Mapped[str] = mapped_column(String(20), default="#888888")
 
     expenses: Mapped[list["Expense"]] = relationship(back_populates="category")
+    budget: Mapped["Budget | None"] = relationship(back_populates="category")
 
 
 class Expense(Base):
@@ -34,3 +35,18 @@ class Expense(Base):
     note: Mapped[str] = mapped_column(String(240), default="")
 
     category: Mapped["Category"] = relationship(back_populates="expenses")
+
+
+class Budget(Base):
+    """Monthly spending limit for one category (applies every calendar month)."""
+
+    __tablename__ = "budgets"
+    __table_args__ = (
+        UniqueConstraint("category_id", name="uq_budgets_category_id"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    category_id: Mapped[int] = mapped_column(ForeignKey("categories.id"), nullable=False)
+    amount: Mapped[float] = mapped_column(Float, nullable=False)
+
+    category: Mapped["Category"] = relationship(back_populates="budget")

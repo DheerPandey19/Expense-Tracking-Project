@@ -2,14 +2,24 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import type { FormEvent } from "react";
 import {
   createExpense,
+  deleteBudget,
   deleteExpense,
+  getBudgets,
   getCategories,
   getExpenses,
   getSummary,
   parseExpense,
   updateExpense,
+  upsertBudget,
 } from "./api";
-import type { Category, DateRange, Expense, ExpenseDraft, Summary } from "./api";
+import type {
+  BudgetProgress,
+  Category,
+  DateRange,
+  Expense,
+  ExpenseDraft,
+  Summary,
+} from "./api";
 import "./App.css";
 
 type Preset = "all" | "week" | "month" | "custom";
@@ -85,6 +95,10 @@ export default function App() {
   const [editDate, setEditDate] = useState("");
   const [savingEdit, setSavingEdit] = useState(false);
 
+  const [budgets, setBudgets] = useState<BudgetProgress[]>([]);
+  const [budgetDrafts, setBudgetDrafts] = useState<Record<number, string>>({});
+  const [savingBudgetId, setSavingBudgetId] = useState<number | null>(null);
+
   const dateRange = useMemo(
     () => rangeForPreset(preset, customFrom, customTo),
     [preset, customFrom, customTo],
@@ -97,14 +111,22 @@ export default function App() {
   }, [categories]);
 
   const refresh = useCallback(async () => {
-    const [cats, exps, sum] = await Promise.all([
+    const [cats, exps, sum, buds] = await Promise.all([
       getCategories(),
       getExpenses(dateRange),
       getSummary(dateRange),
+      getBudgets(),
     ]);
     setCategories(cats);
     setExpenses(exps);
     setSummary(sum);
+    setBudgets(buds);
+    const limits: Record<number, string> = {};
+    for (const c of cats) {
+      const b = buds.find((x) => x.category_id === c.id);
+      limits[c.id] = b ? String(b.limit) : "";
+    }
+    setBudgetDrafts(limits);
     setCategoryId((prev) => prev || (cats[0] ? String(cats[0].id) : ""));
   }, [dateRange]);
 
@@ -254,6 +276,44 @@ export default function App() {
     }
   }
 
+  async function saveBudget(categoryIdNum: number) {
+    const raw = budgetDrafts[categoryIdNum]?.trim() ?? "";
+    if (!raw) {
+      setError("Enter a monthly limit greater than 0, or clear to remove.");
+      return;
+    }
+    const value = Number(raw);
+    if (!Number.isFinite(value) || value <= 0) {
+      setError("Budget must be greater than 0.");
+      return;
+    }
+    setSavingBudgetId(categoryIdNum);
+    setError(null);
+    try {
+      await upsertBudget({ category_id: categoryIdNum, amount: value });
+      await refresh();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to save budget");
+    } finally {
+      setSavingBudgetId(null);
+    }
+  }
+
+  async function clearBudget(categoryIdNum: number) {
+    setSavingBudgetId(categoryIdNum);
+    setError(null);
+    try {
+      const exists = budgets.some((b) => b.category_id === categoryIdNum);
+      if (exists) await deleteBudget(categoryIdNum);
+      setBudgetDrafts((prev) => ({ ...prev, [categoryIdNum]: "" }));
+      await refresh();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to clear budget");
+    } finally {
+      setSavingBudgetId(null);
+    }
+  }
+
   if (loading && !summary) {
     return (
       <main className="page">
@@ -331,6 +391,66 @@ export default function App() {
         ) : (
           <p>No summary yet.</p>
         )}
+      </section>
+
+      <section>
+        <h2>Monthly budgets</h2>
+        <p className="hint">Limits apply to the current calendar month.</p>
+        {budgets.length > 0 && (
+          <ul className="budget-progress">
+            {budgets.map((b) => (
+              <li key={b.category_id} className={b.over ? "over" : undefined}>
+                <div className="budget-head">
+                  <span className="swatch" style={{ background: b.color }} aria-hidden />
+                  <span>
+                    {b.category_name}: {formatMoney(b.spent)} / {formatMoney(b.limit)}
+                    {b.over ? " — over" : ` · ${formatMoney(b.remaining)} left`}
+                  </span>
+                </div>
+                <div className="bar" role="progressbar" aria-valuenow={Math.min(b.pct, 100)} aria-valuemin={0} aria-valuemax={100}>
+                  <div
+                    className="bar-fill"
+                    style={{ width: `${Math.min(b.pct, 100)}%`, background: b.color }}
+                  />
+                </div>
+              </li>
+            ))}
+          </ul>
+        )}
+        <ul className="budget-edit">
+          {categories.map((c) => (
+            <li key={c.id}>
+              <span className="budget-label">
+                <span className="swatch" style={{ background: c.color }} aria-hidden />
+                {c.name}
+              </span>
+              <input
+                type="number"
+                min="0.01"
+                step="0.01"
+                placeholder="limit"
+                value={budgetDrafts[c.id] ?? ""}
+                onChange={(e) =>
+                  setBudgetDrafts((prev) => ({ ...prev, [c.id]: e.target.value }))
+                }
+              />
+              <button
+                type="button"
+                disabled={savingBudgetId === c.id}
+                onClick={() => saveBudget(c.id)}
+              >
+                {savingBudgetId === c.id ? "…" : "Save"}
+              </button>
+              <button
+                type="button"
+                disabled={savingBudgetId === c.id || !(budgetDrafts[c.id] || budgets.some((b) => b.category_id === c.id))}
+                onClick={() => clearBudget(c.id)}
+              >
+                Clear
+              </button>
+            </li>
+          ))}
+        </ul>
       </section>
 
       <section>
