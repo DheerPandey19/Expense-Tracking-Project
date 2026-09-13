@@ -1,9 +1,9 @@
 from contextlib import asynccontextmanager
 from datetime import date
 
-from fastapi import Depends, FastAPI, HTTPException
+from fastapi import Depends, FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
-from sqlalchemy import func, select
+from sqlalchemy import and_, func, select
 from sqlalchemy.orm import Session
 
 from app.db import Base, engine, get_db, ping_db
@@ -15,6 +15,7 @@ from app.schemas import (
     ExpenseCreate,
     ExpenseDraft,
     ExpenseOut,
+    ExpenseUpdate,
     ParseIn,
     ParseOut,
     SummaryOut,
@@ -43,6 +44,26 @@ app.add_middleware(
 )
 
 
+def _expense_out(expense: Expense, category_name: str | None) -> ExpenseOut:
+    return ExpenseOut(
+        id=expense.id,
+        category_id=expense.category_id,
+        amount=expense.amount,
+        date=expense.date,
+        note=expense.note,
+        category_name=category_name,
+    )
+
+
+def _date_filters(from_date: date | None, to_date: date | None):
+    filters = []
+    if from_date is not None:
+        filters.append(Expense.date >= from_date)
+    if to_date is not None:
+        filters.append(Expense.date <= to_date)
+    return filters
+
+
 @app.get("/api/health")
 def health() -> dict:
     try:
@@ -58,13 +79,13 @@ def list_categories(db: Session = Depends(get_db)) -> list[Category]:
 
 
 @app.post("/api/expenses", response_model=ExpenseOut)
-def create_expense(body: ExpenseCreate, db: Session = Depends(get_db)) -> Expense:
-    category = db.get(Category,body.category_id)
+def create_expense(body: ExpenseCreate, db: Session = Depends(get_db)) -> ExpenseOut:
+    category = db.get(Category, body.category_id)
 
     if not category:
         raise HTTPException(status_code=404, detail="Category not found")
 
-    expense= Expense(
+    expense = Expense(
         category_id=body.category_id,
         amount=body.amount,
         date=body.date or date.today(),
@@ -73,33 +94,55 @@ def create_expense(body: ExpenseCreate, db: Session = Depends(get_db)) -> Expens
     db.add(expense)
     db.commit()
     db.refresh(expense)
-    return ExpenseOut(
-        id=expense.id,
-        category_id=expense.category_id,
-        amount=expense.amount,
-        date=expense.date,
-        note=expense.note,
-        category_name=category.name,
-    )
-    
+    return _expense_out(expense, category.name)
+
+
 @app.get("/api/expenses", response_model=list[ExpenseOut])
-def list_expenses(db: Session = Depends(get_db)) -> list[ExpenseOut]:
-    rows = db.execute(
+def list_expenses(
+    db: Session = Depends(get_db),
+    from_date: date | None = Query(default=None, alias="from"),
+    to_date: date | None = Query(default=None, alias="to"),
+) -> list[ExpenseOut]:
+    if from_date and to_date and from_date > to_date:
+        raise HTTPException(status_code=400, detail="'from' must be on or before 'to'")
+
+    stmt = (
         select(Expense, Category.name)
         .join(Category, Category.id == Expense.category_id)
         .order_by(Expense.date.desc(), Expense.id.desc())
-    ).all()
-    return [
-        ExpenseOut(
-            id=e.id,
-            category_id=e.category_id,
-            amount=e.amount,
-            date=e.date,
-            note=e.note,
-            category_name=name,
-        )
-        for e, name in rows
-    ]
+    )
+    for f in _date_filters(from_date, to_date):
+        stmt = stmt.where(f)
+
+    rows = db.execute(stmt).all()
+    return [_expense_out(e, name) for e, name in rows]
+
+
+@app.patch("/api/expenses/{expense_id}", response_model=ExpenseOut)
+def update_expense(
+    expense_id: int, body: ExpenseUpdate, db: Session = Depends(get_db)
+) -> ExpenseOut:
+    expense = db.get(Expense, expense_id)
+    if not expense:
+        raise HTTPException(status_code=404, detail="Expense not found")
+
+    data = body.model_dump(exclude_unset=True)
+    if "category_id" in data:
+        category = db.get(Category, data["category_id"])
+        if not category:
+            raise HTTPException(status_code=404, detail="Category not found")
+        expense.category_id = data["category_id"]
+    if "amount" in data and data["amount"] is not None:
+        expense.amount = data["amount"]
+    if "date" in data and data["date"] is not None:
+        expense.date = data["date"]
+    if "note" in data and data["note"] is not None:
+        expense.note = data["note"].strip()
+
+    db.commit()
+    db.refresh(expense)
+    category = db.get(Category, expense.category_id)
+    return _expense_out(expense, category.name if category else None)
 
 
 @app.delete("/api/expenses/{expense_id}")
@@ -113,18 +156,43 @@ def delete_expense(expense_id: int, db: Session = Depends(get_db)) -> dict[str, 
 
 
 @app.get("/api/summary", response_model=SummaryOut)
-def summary(db: Session = Depends(get_db)) -> SummaryOut:
-    total = db.scalar(select(func.coalesce(func.sum(Expense.amount), 0.0))) or 0.0
+def summary(
+    db: Session = Depends(get_db),
+    from_date: date | None = Query(default=None, alias="from"),
+    to_date: date | None = Query(default=None, alias="to"),
+) -> SummaryOut:
+    if from_date and to_date and from_date > to_date:
+        raise HTTPException(status_code=400, detail="'from' must be on or before 'to'")
+
+    filters = _date_filters(from_date, to_date)
+
+    total_stmt = select(func.coalesce(func.sum(Expense.amount), 0.0))
+    for f in filters:
+        total_stmt = total_stmt.where(f)
+    total = db.scalar(total_stmt) or 0.0
+
+    join_on = Expense.category_id == Category.id
+    if filters:
+        join_on = and_(join_on, *filters)
+
     rows = db.execute(
-        select(Category.id, Category.name, func.coalesce(func.sum(Expense.amount), 0.0))
-        .outerjoin(Expense, Expense.category_id == Category.id)
-        .group_by(Category.id, Category.name)
+        select(
+            Category.id,
+            Category.name,
+            Category.color,
+            func.coalesce(func.sum(Expense.amount), 0.0),
+        )
+        .outerjoin(Expense, join_on)
+        .group_by(Category.id, Category.name, Category.color)
         .order_by(Category.id)
     ).all()
     return SummaryOut(
         total_spend=float(total),
         by_category=[
-            CategoryTotal(category_id=r[0], name=r[1], total=float(r[2])) for r in rows
+            CategoryTotal(
+                category_id=r[0], name=r[1], color=r[2], total=float(r[3])
+            )
+            for r in rows
         ],
     )
 

@@ -22,10 +22,23 @@ export type ExpenseCreate = {
   note?: string;
 };
 
+export type ExpenseUpdate = {
+  category_id?: number;
+  amount?: number;
+  date?: string | null;
+  note?: string;
+};
+
+export type DateRange = {
+  from?: string;
+  to?: string;
+};
+
 export type CategoryTotal = {
   category_id: number;
   name: string;
   total: number;
+  color?: string | null;
 };
 
 export type Summary = {
@@ -44,6 +57,15 @@ export type ExpenseDraft = {
 export type ParseOut = {
   drafts: ExpenseDraft[];
 };
+
+function rangeQuery(range?: DateRange): string {
+  if (!range) return "";
+  const params = new URLSearchParams();
+  if (range.from) params.set("from", range.from);
+  if (range.to) params.set("to", range.to);
+  const q = params.toString();
+  return q ? `?${q}` : "";
+}
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const res = await fetch(`${API_BASE}${path}`, {
@@ -72,8 +94,8 @@ export function getCategories() {
   return request<Category[]>("/api/categories");
 }
 
-export function getExpenses() {
-  return request<Expense[]>("/api/expenses");
+export function getExpenses(range?: DateRange) {
+  return request<Expense[]>(`/api/expenses${rangeQuery(range)}`);
 }
 
 export function createExpense(body: ExpenseCreate) {
@@ -83,12 +105,19 @@ export function createExpense(body: ExpenseCreate) {
   });
 }
 
+export function updateExpense(id: number, body: ExpenseUpdate) {
+  return request<Expense>(`/api/expenses/${id}`, {
+    method: "PATCH",
+    body: JSON.stringify(body),
+  });
+}
+
 export function deleteExpense(id: number) {
   return request<{ ok: boolean }>(`/api/expenses/${id}`, { method: "DELETE" });
 }
 
-export function getSummary() {
-  return request<Summary>("/api/summary");
+export function getSummary(range?: DateRange) {
+  return request<Summary>(`/api/summary${rangeQuery(range)}`);
 }
 
 export function parseExpense(text: string) {

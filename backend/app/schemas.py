@@ -18,6 +18,13 @@ class ExpenseCreate(BaseModel):
     note: str = Field(default="", max_length=240)
 
 
+class ExpenseUpdate(BaseModel):
+    category_id: int | None = None
+    amount: float | None = Field(default=None, gt=0)
+    date: Date | None = None
+    note: str | None = Field(default=None, max_length=240)
+
+
 class ExpenseOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
@@ -33,6 +40,7 @@ class CategoryTotal(BaseModel):
     category_id: int
     name: str
     total: float
+    color: str | None = None
 
 
 class SummaryOut(BaseModel):

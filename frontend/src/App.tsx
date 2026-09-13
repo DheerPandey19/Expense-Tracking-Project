@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import type { FormEvent } from "react";
 import {
   createExpense,
@@ -7,15 +7,54 @@ import {
   getExpenses,
   getSummary,
   parseExpense,
+  updateExpense,
 } from "./api";
-import type { Category, Expense, ExpenseDraft, Summary } from "./api";
+import type { Category, DateRange, Expense, ExpenseDraft, Summary } from "./api";
 import "./App.css";
+
+type Preset = "all" | "week" | "month" | "custom";
 
 function formatMoney(n: number) {
   return n.toLocaleString(undefined, {
     minimumFractionDigits: 2,
     maximumFractionDigits: 2,
   });
+}
+
+function toISODate(d: Date) {
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${y}-${m}-${day}`;
+}
+
+function startOfWeek(d: Date) {
+  const out = new Date(d);
+  const day = out.getDay();
+  const diff = day === 0 ? 6 : day - 1;
+  out.setDate(out.getDate() - diff);
+  return out;
+}
+
+function startOfMonth(d: Date) {
+  return new Date(d.getFullYear(), d.getMonth(), 1);
+}
+
+function rangeForPreset(preset: Preset, customFrom: string, customTo: string): DateRange {
+  const today = new Date();
+  if (preset === "week") {
+    return { from: toISODate(startOfWeek(today)), to: toISODate(today) };
+  }
+  if (preset === "month") {
+    return { from: toISODate(startOfMonth(today)), to: toISODate(today) };
+  }
+  if (preset === "custom") {
+    return {
+      from: customFrom || undefined,
+      to: customTo || undefined,
+    };
+  }
+  return {};
 }
 
 export default function App() {
@@ -26,6 +65,10 @@ export default function App() {
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
 
+  const [preset, setPreset] = useState<Preset>("month");
+  const [customFrom, setCustomFrom] = useState("");
+  const [customTo, setCustomTo] = useState("");
+
   const [categoryId, setCategoryId] = useState("");
   const [amount, setAmount] = useState("");
   const [note, setNote] = useState("");
@@ -35,23 +78,42 @@ export default function App() {
   const [drafts, setDrafts] = useState<ExpenseDraft[]>([]);
   const [parsing, setParsing] = useState(false);
 
+  const [editingId, setEditingId] = useState<number | null>(null);
+  const [editCategoryId, setEditCategoryId] = useState("");
+  const [editAmount, setEditAmount] = useState("");
+  const [editNote, setEditNote] = useState("");
+  const [editDate, setEditDate] = useState("");
+  const [savingEdit, setSavingEdit] = useState(false);
+
+  const dateRange = useMemo(
+    () => rangeForPreset(preset, customFrom, customTo),
+    [preset, customFrom, customTo],
+  );
+
+  const colorById = useMemo(() => {
+    const map = new Map<number, string>();
+    for (const c of categories) map.set(c.id, c.color);
+    return map;
+  }, [categories]);
+
   const refresh = useCallback(async () => {
     const [cats, exps, sum] = await Promise.all([
       getCategories(),
-      getExpenses(),
-      getSummary(),
+      getExpenses(dateRange),
+      getSummary(dateRange),
     ]);
     setCategories(cats);
     setExpenses(exps);
     setSummary(sum);
     setCategoryId((prev) => prev || (cats[0] ? String(cats[0].id) : ""));
-  }, []);
+  }, [dateRange]);
 
   useEffect(() => {
     let cancelled = false;
     (async () => {
       try {
         setError(null);
+        setLoading(true);
         await refresh();
       } catch (err) {
         if (!cancelled) {
@@ -143,17 +205,56 @@ export default function App() {
     }
   }
 
+  function startEdit(e: Expense) {
+    setEditingId(e.id);
+    setEditCategoryId(String(e.category_id));
+    setEditAmount(String(e.amount));
+    setEditNote(e.note);
+    setEditDate(e.date);
+  }
+
+  function cancelEdit() {
+    setEditingId(null);
+  }
+
+  async function saveEdit(e: FormEvent) {
+    e.preventDefault();
+    if (editingId == null) return;
+    const parsedAmount = Number(editAmount);
+    if (!editCategoryId || !Number.isFinite(parsedAmount) || parsedAmount <= 0) {
+      setError("Pick a category and enter an amount greater than 0.");
+      return;
+    }
+    setSavingEdit(true);
+    setError(null);
+    try {
+      await updateExpense(editingId, {
+        category_id: Number(editCategoryId),
+        amount: parsedAmount,
+        note: editNote.trim(),
+        date: editDate || null,
+      });
+      setEditingId(null);
+      await refresh();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to update expense");
+    } finally {
+      setSavingEdit(false);
+    }
+  }
+
   async function onDelete(id: number) {
     setError(null);
     try {
       await deleteExpense(id);
+      if (editingId === id) setEditingId(null);
       await refresh();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to delete expense");
     }
   }
 
-  if (loading) {
+  if (loading && !summary) {
     return (
       <main className="page">
         <p>Loading…</p>
@@ -168,16 +269,63 @@ export default function App() {
       {error && <p className="error">{error}</p>}
 
       <section>
+        <h2>Period</h2>
+        <div className="presets" role="group" aria-label="Date range">
+          {(
+            [
+              ["all", "All time"],
+              ["week", "This week"],
+              ["month", "This month"],
+              ["custom", "Custom"],
+            ] as const
+          ).map(([value, label]) => (
+            <button
+              key={value}
+              type="button"
+              className={preset === value ? "preset active" : "preset"}
+              onClick={() => setPreset(value)}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
+        {preset === "custom" && (
+          <div className="range-inputs">
+            <label>
+              From
+              <input
+                type="date"
+                value={customFrom}
+                onChange={(e) => setCustomFrom(e.target.value)}
+              />
+            </label>
+            <label>
+              To
+              <input
+                type="date"
+                value={customTo}
+                onChange={(e) => setCustomTo(e.target.value)}
+              />
+            </label>
+          </div>
+        )}
+      </section>
+
+      <section>
         <h2>Summary</h2>
         {summary ? (
           <>
             <p className="total">Total: {formatMoney(summary.total_spend)}</p>
-            <ul className="plain">
-              {summary.by_category.map((c) => (
-                <li key={c.category_id}>
-                  {c.name}: {formatMoney(c.total)}
-                </li>
-              ))}
+            <ul className="plain category-totals">
+              {summary.by_category.map((c) => {
+                const color = c.color ?? colorById.get(c.category_id) ?? "#888";
+                return (
+                  <li key={c.category_id}>
+                    <span className="swatch" style={{ background: color }} aria-hidden />
+                    {c.name}: {formatMoney(c.total)}
+                  </li>
+                );
+              })}
             </ul>
           </>
         ) : (
@@ -317,20 +465,90 @@ export default function App() {
       <section>
         <h2>Expenses</h2>
         {expenses.length === 0 ? (
-          <p>No expenses yet.</p>
+          <p>No expenses in this period.</p>
         ) : (
           <ul className="expenses">
-            {expenses.map((e) => (
-              <li key={e.id}>
-                <span>
-                  {e.date} · {e.category_name ?? "?"} · {formatMoney(e.amount)}
-                  {e.note ? ` — ${e.note}` : ""}
-                </span>
-                <button type="button" onClick={() => onDelete(e.id)}>
-                  Delete
-                </button>
-              </li>
-            ))}
+            {expenses.map((e) => {
+              const color = colorById.get(e.category_id) ?? "#888";
+              if (editingId === e.id) {
+                return (
+                  <li key={e.id} className="expense-edit">
+                    <form className="form edit-form" onSubmit={saveEdit}>
+                      <label>
+                        Category
+                        <select
+                          value={editCategoryId}
+                          onChange={(ev) => setEditCategoryId(ev.target.value)}
+                          required
+                        >
+                          {categories.map((c) => (
+                            <option key={c.id} value={c.id}>
+                              {c.name}
+                            </option>
+                          ))}
+                        </select>
+                      </label>
+                      <label>
+                        Amount
+                        <input
+                          type="number"
+                          min="0.01"
+                          step="0.01"
+                          value={editAmount}
+                          onChange={(ev) => setEditAmount(ev.target.value)}
+                          required
+                        />
+                      </label>
+                      <label>
+                        Date
+                        <input
+                          type="date"
+                          value={editDate}
+                          onChange={(ev) => setEditDate(ev.target.value)}
+                          required
+                        />
+                      </label>
+                      <label>
+                        Note
+                        <input
+                          type="text"
+                          maxLength={240}
+                          value={editNote}
+                          onChange={(ev) => setEditNote(ev.target.value)}
+                        />
+                      </label>
+                      <div className="row-actions">
+                        <button type="submit" disabled={savingEdit}>
+                          {savingEdit ? "Saving…" : "Save"}
+                        </button>
+                        <button type="button" onClick={cancelEdit}>
+                          Cancel
+                        </button>
+                      </div>
+                    </form>
+                  </li>
+                );
+              }
+              return (
+                <li key={e.id}>
+                  <span className="expense-main">
+                    <span className="swatch" style={{ background: color }} aria-hidden />
+                    <span>
+                      {e.date} · {e.category_name ?? "?"} · {formatMoney(e.amount)}
+                      {e.note ? ` — ${e.note}` : ""}
+                    </span>
+                  </span>
+                  <span className="row-actions">
+                    <button type="button" onClick={() => startEdit(e)}>
+                      Edit
+                    </button>
+                    <button type="button" onClick={() => onDelete(e.id)}>
+                      Delete
+                    </button>
+                  </span>
+                </li>
+              );
+            })}
           </ul>
         )}
       </section>
