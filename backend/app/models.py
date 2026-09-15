@@ -15,6 +15,18 @@ expense_tags = Table(
     Column("tag_id", Integer, ForeignKey("tags.id", ondelete="CASCADE"), primary_key=True),
 )
 
+expense_categories = Table(
+    "expense_categories",
+    Base.metadata,
+    Column("expense_id", Integer, ForeignKey("expenses.id", ondelete="CASCADE"), primary_key=True),
+    Column(
+        "category_id",
+        Integer,
+        ForeignKey("categories.id", ondelete="CASCADE"),
+        primary_key=True,
+    ),
+)
+
 
 class Category(Base):
     """Spending labels (Food, Rent, etc.). Names are unique app-wide."""
@@ -26,7 +38,9 @@ class Category(Base):
     name: Mapped[str] = mapped_column(String(80), nullable=False)
     color: Mapped[str] = mapped_column(String(20), default="#888888")
 
-    expenses: Mapped[list["Expense"]] = relationship(back_populates="category")
+    expenses: Mapped[list["Expense"]] = relationship(
+        secondary=expense_categories, back_populates="categories"
+    )
     budget: Mapped["Budget | None"] = relationship(back_populates="category")
 
 
@@ -50,12 +64,15 @@ class Expense(Base):
     __tablename__ = "expenses"
 
     id: Mapped[int] = mapped_column(primary_key=True)
+    # Primary category (first selection); also mirrored into categories M2M.
     category_id: Mapped[int] = mapped_column(ForeignKey("categories.id"), nullable=False)
     amount: Mapped[float] = mapped_column(Float, nullable=False)
     date: Mapped[date] = mapped_column(Date, nullable=False)
     note: Mapped[str] = mapped_column(String(240), default="")
 
-    category: Mapped["Category"] = relationship(back_populates="expenses")
+    categories: Mapped[list["Category"]] = relationship(
+        secondary=expense_categories, back_populates="expenses"
+    )
     tags: Mapped[list["Tag"]] = relationship(
         secondary=expense_tags, back_populates="expenses"
     )

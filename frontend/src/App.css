@@ -210,6 +210,32 @@ section {
   color: #333;
 }
 
+.category-extras {
+  margin: 0;
+  padding: 0.5rem 0.65rem;
+  border: 1px solid #ddd;
+  border-radius: 4px;
+}
+
+.category-extras legend {
+  padding: 0 0.25rem;
+  font-size: 0.85rem;
+}
+
+.checkbox-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem 0.85rem;
+}
+
+.check-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  font-size: 0.85rem;
+  cursor: pointer;
+}
+
 .hint {
   margin: 0 0 0.75rem;
   font-size: 0.85rem;

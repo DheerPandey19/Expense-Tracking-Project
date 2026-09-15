@@ -18,11 +18,13 @@ export type Expense = {
   date: string;
   note: string;
   category_name: string | null;
+  categories: Category[];
   tags: string[];
 };
 
 export type ExpenseCreate = {
-  category_id: number;
+  category_id?: number;
+  category_ids: number[];
   amount: number;
   date?: string | null;
   note?: string;
@@ -31,6 +33,7 @@ export type ExpenseCreate = {
 
 export type ExpenseUpdate = {
   category_id?: number;
+  category_ids?: number[];
   amount?: number;
   date?: string | null;
   note?: string;
@@ -57,6 +60,7 @@ export type Summary = {
 export type ExpenseDraft = {
   amount: number;
   category_id: number | null;
+  category_ids?: number[];
   date: string | null;
   note: string;
   confidence: string;

@@ -1,6 +1,6 @@
 from datetime import date as Date
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 
 class CategoryOut(BaseModel):
@@ -34,8 +34,20 @@ def _normalize_tag_names(names: list[str] | None) -> list[str] | None:
     return out
 
 
+def _dedupe_ids(ids: list[int]) -> list[int]:
+    seen: set[int] = set()
+    out: list[int] = []
+    for i in ids:
+        if i in seen:
+            continue
+        seen.add(i)
+        out.append(i)
+    return out
+
+
 class ExpenseCreate(BaseModel):
-    category_id: int
+    category_id: int | None = None
+    category_ids: list[int] | None = None
     amount: float = Field(gt=0)
     date: Date | None = None
     note: str = Field(default="", max_length=240)
@@ -50,9 +62,22 @@ class ExpenseCreate(BaseModel):
             raise ValueError("tags must be a list of strings")
         return _normalize_tag_names([str(x) for x in v]) or []
 
+    @model_validator(mode="after")
+    def resolve_category_ids(self) -> "ExpenseCreate":
+        ids = list(self.category_ids or [])
+        if self.category_id is not None:
+            ids = [self.category_id, *[i for i in ids if i != self.category_id]]
+        ids = _dedupe_ids(ids)
+        if not ids:
+            raise ValueError("at least one category is required")
+        self.category_ids = ids
+        self.category_id = ids[0]
+        return self
+
 
 class ExpenseUpdate(BaseModel):
     category_id: int | None = None
+    category_ids: list[int] | None = None
     amount: float | None = Field(default=None, gt=0)
     date: Date | None = None
     note: str | None = Field(default=None, max_length=240)
@@ -67,6 +92,20 @@ class ExpenseUpdate(BaseModel):
             raise ValueError("tags must be a list of strings")
         return _normalize_tag_names([str(x) for x in v])
 
+    @model_validator(mode="after")
+    def resolve_category_ids(self) -> "ExpenseUpdate":
+        if self.category_ids is None and self.category_id is None:
+            return self
+        ids = list(self.category_ids or [])
+        if self.category_id is not None:
+            ids = [self.category_id, *[i for i in ids if i != self.category_id]]
+        ids = _dedupe_ids(ids)
+        if not ids:
+            raise ValueError("at least one category is required")
+        self.category_ids = ids
+        self.category_id = ids[0]
+        return self
+
 
 class ExpenseOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
@@ -77,6 +116,7 @@ class ExpenseOut(BaseModel):
     date: Date
     note: str
     category_name: str | None = None
+    categories: list[CategoryOut] = Field(default_factory=list)
     tags: list[str] = Field(default_factory=list)
 
 
@@ -99,10 +139,22 @@ class ParseIn(BaseModel):
 class ExpenseDraft(BaseModel):
     amount: float = Field(gt=0)
     category_id: int | None = None
+    category_ids: list[int] = Field(default_factory=list)
     date: Date | None = None
     note: str = ""
     confidence: str = "low"
     tags: list[str] = Field(default_factory=list)
+
+    @model_validator(mode="after")
+    def sync_category_ids(self) -> "ExpenseDraft":
+        if self.category_ids:
+            self.category_ids = _dedupe_ids(self.category_ids)
+            if self.category_id is None:
+                self.category_id = self.category_ids[0]
+            return self
+        if self.category_id is not None:
+            self.category_ids = [self.category_id]
+        return self
 
 
 class ParseOut(BaseModel):

@@ -69,6 +69,56 @@ function rangeForPreset(preset: Preset, customFrom: string, customTo: string): D
   return {};
 }
 
+function mergeCategoryIds(primaryId: number, extraIds: number[]): number[] {
+  const seen = new Set<number>();
+  const out: number[] = [];
+  for (const id of [primaryId, ...extraIds]) {
+    if (seen.has(id)) continue;
+    seen.add(id);
+    out.push(id);
+  }
+  return out;
+}
+
+function CategoryExtras({
+  categories,
+  primaryId,
+  extraIds,
+  onChange,
+}: {
+  categories: Category[];
+  primaryId: number | null;
+  extraIds: number[];
+  onChange: (ids: number[]) => void;
+}) {
+  const options = categories.filter((c) => c.id !== primaryId);
+  if (options.length === 0) return null;
+
+  function toggle(id: number) {
+    if (extraIds.includes(id)) onChange(extraIds.filter((x) => x !== id));
+    else onChange([...extraIds, id]);
+  }
+
+  return (
+    <fieldset className="category-extras">
+      <legend>Also categories</legend>
+      <div className="checkbox-row">
+        {options.map((c) => (
+          <label key={c.id} className="check-label">
+            <input
+              type="checkbox"
+              checked={extraIds.includes(c.id)}
+              onChange={() => toggle(c.id)}
+            />
+            <span className="swatch" style={{ background: c.color }} aria-hidden />
+            {c.name}
+          </label>
+        ))}
+      </div>
+    </fieldset>
+  );
+}
+
 export default function App() {
   const [categories, setCategories] = useState<Category[]>([]);
   const [expenses, setExpenses] = useState<Expense[]>([]);
@@ -82,6 +132,7 @@ export default function App() {
   const [customTo, setCustomTo] = useState("");
 
   const [categoryId, setCategoryId] = useState("");
+  const [extraCategoryIds, setExtraCategoryIds] = useState<number[]>([]);
   const [amount, setAmount] = useState("");
   const [note, setNote] = useState("");
   const [date, setDate] = useState("");
@@ -93,6 +144,7 @@ export default function App() {
 
   const [editingId, setEditingId] = useState<number | null>(null);
   const [editCategoryId, setEditCategoryId] = useState("");
+  const [editExtraCategoryIds, setEditExtraCategoryIds] = useState<number[]>([]);
   const [editAmount, setEditAmount] = useState("");
   const [editNote, setEditNote] = useState("");
   const [editDate, setEditDate] = useState("");
@@ -175,7 +227,24 @@ export default function App() {
   }
 
   function updateDraft(index: number, patch: Partial<ExpenseDraft>) {
-    setDrafts((prev) => prev.map((d, i) => (i === index ? { ...d, ...patch } : d)));
+    setDrafts((prev) =>
+      prev.map((d, i) => {
+        if (i !== index) return d;
+        const next = { ...d, ...patch };
+        if (patch.category_id !== undefined) {
+          const primary = patch.category_id;
+          const extras = (next.category_ids ?? []).filter((id) => id !== primary);
+          next.category_ids =
+            primary == null ? extras : mergeCategoryIds(primary, extras);
+        }
+        return next;
+      }),
+    );
+  }
+
+  function draftExtraIds(d: ExpenseDraft): number[] {
+    const primary = d.category_id;
+    return (d.category_ids ?? []).filter((id) => id !== primary);
   }
 
   async function approveDraft(index: number) {
@@ -187,7 +256,7 @@ export default function App() {
     setError(null);
     try {
       await createExpense({
-        category_id: d.category_id,
+        category_ids: mergeCategoryIds(d.category_id, draftExtraIds(d)),
         amount: d.amount,
         note: d.note,
         date: d.date,
@@ -216,7 +285,7 @@ export default function App() {
     setError(null);
     try {
       await createExpense({
-        category_id: Number(categoryId),
+        category_ids: mergeCategoryIds(Number(categoryId), extraCategoryIds),
         amount: parsedAmount,
         note: note.trim(),
         date: date || null,
@@ -226,6 +295,7 @@ export default function App() {
       setNote("");
       setDate("");
       setTagsInput("");
+      setExtraCategoryIds([]);
       await refresh();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to create expense");
@@ -237,6 +307,9 @@ export default function App() {
   function startEdit(e: Expense) {
     setEditingId(e.id);
     setEditCategoryId(String(e.category_id));
+    setEditExtraCategoryIds(
+      (e.categories ?? []).map((c) => c.id).filter((id) => id !== e.category_id),
+    );
     setEditAmount(String(e.amount));
     setEditNote(e.note);
     setEditDate(e.date);
@@ -259,7 +332,7 @@ export default function App() {
     setError(null);
     try {
       await updateExpense(editingId, {
-        category_id: Number(editCategoryId),
+        category_ids: mergeCategoryIds(Number(editCategoryId), editExtraCategoryIds),
         amount: parsedAmount,
         note: editNote.trim(),
         date: editDate || null,
@@ -513,6 +586,19 @@ export default function App() {
                 ))}
               </select>
             </label>
+            <CategoryExtras
+              categories={categories}
+              primaryId={d.category_id}
+              extraIds={draftExtraIds(d)}
+              onChange={(ids) =>
+                updateDraft(i, {
+                  category_ids:
+                    d.category_id == null
+                      ? ids
+                      : mergeCategoryIds(d.category_id, ids),
+                })
+              }
+            />
             <label>
               Date
               <input
@@ -555,7 +641,12 @@ export default function App() {
             Category
             <select
               value={categoryId}
-              onChange={(e) => setCategoryId(e.target.value)}
+              onChange={(e) => {
+                const next = e.target.value;
+                setCategoryId(next);
+                const primary = Number(next);
+                setExtraCategoryIds((prev) => prev.filter((id) => id !== primary));
+              }}
               required
             >
               {categories.map((c) => (
@@ -565,6 +656,12 @@ export default function App() {
               ))}
             </select>
           </label>
+          <CategoryExtras
+            categories={categories}
+            primaryId={categoryId ? Number(categoryId) : null}
+            extraIds={extraCategoryIds}
+            onChange={setExtraCategoryIds}
+          />
           <label>
             Amount
             <input
@@ -625,7 +722,14 @@ export default function App() {
                         Category
                         <select
                           value={editCategoryId}
-                          onChange={(ev) => setEditCategoryId(ev.target.value)}
+                          onChange={(ev) => {
+                            const next = ev.target.value;
+                            setEditCategoryId(next);
+                            const primary = Number(next);
+                            setEditExtraCategoryIds((prev) =>
+                              prev.filter((id) => id !== primary),
+                            );
+                          }}
                           required
                         >
                           {categories.map((c) => (
@@ -635,6 +739,12 @@ export default function App() {
                           ))}
                         </select>
                       </label>
+                      <CategoryExtras
+                        categories={categories}
+                        primaryId={editCategoryId ? Number(editCategoryId) : null}
+                        extraIds={editExtraCategoryIds}
+                        onChange={setEditExtraCategoryIds}
+                      />
                       <label>
                         Amount
                         <input
@@ -690,7 +800,11 @@ export default function App() {
                   <span className="expense-main">
                     <span className="swatch" style={{ background: color }} aria-hidden />
                     <span>
-                      {e.date} · {e.category_name ?? "?"} · {formatMoney(e.amount)}
+                      {e.date} ·{" "}
+                      {(e.categories?.length
+                        ? e.categories.map((c) => c.name).join(" · ")
+                        : e.category_name) ?? "?"}{" "}
+                      · {formatMoney(e.amount)}
                       {e.note ? ` — ${e.note}` : ""}
                       {e.tags.length > 0 && (
                         <span className="tag-list">

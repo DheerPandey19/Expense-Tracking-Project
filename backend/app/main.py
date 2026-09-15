@@ -8,7 +8,7 @@ from sqlalchemy import and_, func, select
 from sqlalchemy.orm import Session, selectinload
 
 from app.db import Base, engine, get_db, ping_db
-from app.models import Budget, Category, Expense, Tag  # noqa: F401
+from app.models import Budget, Category, Expense, Tag, expense_categories  # noqa: F401
 from app.parse import parse_expenses
 from app.schemas import (
     BudgetProgress,
@@ -24,7 +24,7 @@ from app.schemas import (
     SummaryOut,
     TagOut,
 )
-from app.seed import seed_categories
+from app.seed import backfill_expense_categories, seed_categories
 
 
 @asynccontextmanager
@@ -33,6 +33,7 @@ async def lifespan(_: FastAPI):
     db = next(get_db())
     try:
         seed_categories(db)
+        backfill_expense_categories(db)
     finally:
         db.close()
     yield
@@ -48,14 +49,21 @@ app.add_middleware(
 )
 
 
-def _expense_out(expense: Expense, category_name: str | None) -> ExpenseOut:
+def _expense_out(expense: Expense) -> ExpenseOut:
+    cats = sorted(expense.categories, key=lambda c: c.id)
+    primary = next((c for c in cats if c.id == expense.category_id), None)
+    if primary is None and cats:
+        primary = cats[0]
     return ExpenseOut(
         id=expense.id,
         category_id=expense.category_id,
         amount=expense.amount,
         date=expense.date,
         note=expense.note,
-        category_name=category_name,
+        category_name=primary.name if primary else None,
+        categories=[
+            CategoryOut(id=c.id, name=c.name, color=c.color) for c in cats
+        ],
         tags=sorted(t.name for t in expense.tags),
     )
 
@@ -70,6 +78,24 @@ def _resolve_tags(db: Session, names: list[str]) -> list[Tag]:
             db.flush()
         tags.append(tag)
     return tags
+
+
+def _resolve_categories(db: Session, category_ids: list[int]) -> list[Category]:
+    cats: list[Category] = []
+    for cid in category_ids:
+        category = db.get(Category, cid)
+        if not category:
+            raise HTTPException(status_code=404, detail=f"Category not found: {cid}")
+        cats.append(category)
+    return cats
+
+
+def _load_expense(db: Session, expense_id: int) -> Expense | None:
+    return db.scalar(
+        select(Expense)
+        .options(selectinload(Expense.tags), selectinload(Expense.categories))
+        .where(Expense.id == expense_id)
+    )
 
 
 def _date_filters(from_date: date | None, to_date: date | None):
@@ -102,27 +128,21 @@ def list_tags(db: Session = Depends(get_db)) -> list[Tag]:
 
 @app.post("/api/expenses", response_model=ExpenseOut)
 def create_expense(body: ExpenseCreate, db: Session = Depends(get_db)) -> ExpenseOut:
-    category = db.get(Category, body.category_id)
-
-    if not category:
-        raise HTTPException(status_code=404, detail="Category not found")
-
+    assert body.category_ids is not None
+    cats = _resolve_categories(db, body.category_ids)
     expense = Expense(
-        category_id=body.category_id,
+        category_id=body.category_ids[0],
         amount=body.amount,
         date=body.date or date.today(),
         note=body.note.strip(),
     )
+    expense.categories = cats
     expense.tags = _resolve_tags(db, body.tags)
     db.add(expense)
     db.commit()
-    expense = db.scalar(
-        select(Expense)
-        .options(selectinload(Expense.tags))
-        .where(Expense.id == expense.id)
-    )
-    assert expense is not None
-    return _expense_out(expense, category.name)
+    loaded = _load_expense(db, expense.id)
+    assert loaded is not None
+    return _expense_out(loaded)
 
 
 @app.get("/api/expenses", response_model=list[ExpenseOut])
@@ -135,36 +155,34 @@ def list_expenses(
         raise HTTPException(status_code=400, detail="'from' must be on or before 'to'")
 
     stmt = (
-        select(Expense, Category.name)
-        .join(Category, Category.id == Expense.category_id)
-        .options(selectinload(Expense.tags))
+        select(Expense)
+        .options(selectinload(Expense.tags), selectinload(Expense.categories))
         .order_by(Expense.date.desc(), Expense.id.desc())
     )
     for f in _date_filters(from_date, to_date):
         stmt = stmt.where(f)
 
-    rows = db.execute(stmt).unique().all()
-    return [_expense_out(e, name) for e, name in rows]
+    expenses = list(db.scalars(stmt).unique().all())
+    return [_expense_out(e) for e in expenses]
 
 
 @app.patch("/api/expenses/{expense_id}", response_model=ExpenseOut)
 def update_expense(
     expense_id: int, body: ExpenseUpdate, db: Session = Depends(get_db)
 ) -> ExpenseOut:
-    expense = db.scalar(
-        select(Expense)
-        .options(selectinload(Expense.tags))
-        .where(Expense.id == expense_id)
-    )
+    expense = _load_expense(db, expense_id)
     if not expense:
         raise HTTPException(status_code=404, detail="Expense not found")
 
     data = body.model_dump(exclude_unset=True)
-    if "category_id" in data:
-        category = db.get(Category, data["category_id"])
-        if not category:
-            raise HTTPException(status_code=404, detail="Category not found")
+    if "category_ids" in data and data["category_ids"] is not None:
+        cats = _resolve_categories(db, data["category_ids"])
+        expense.category_id = data["category_ids"][0]
+        expense.categories = cats
+    elif "category_id" in data and data["category_id"] is not None:
+        cats = _resolve_categories(db, [data["category_id"]])
         expense.category_id = data["category_id"]
+        expense.categories = cats
     if "amount" in data and data["amount"] is not None:
         expense.amount = data["amount"]
     if "date" in data and data["date"] is not None:
@@ -175,15 +193,9 @@ def update_expense(
         expense.tags = _resolve_tags(db, data["tags"])
 
     db.commit()
-    db.refresh(expense)
-    expense = db.scalar(
-        select(Expense)
-        .options(selectinload(Expense.tags))
-        .where(Expense.id == expense_id)
-    )
-    assert expense is not None
-    category = db.get(Category, expense.category_id)
-    return _expense_out(expense, category.name if category else None)
+    loaded = _load_expense(db, expense_id)
+    assert loaded is not None
+    return _expense_out(loaded)
 
 
 @app.delete("/api/expenses/{expense_id}")
@@ -212,7 +224,8 @@ def summary(
         total_stmt = total_stmt.where(f)
     total = db.scalar(total_stmt) or 0.0
 
-    join_on = Expense.category_id == Category.id
+    # Amount counts fully toward each linked category (e.g. Food + Parents).
+    join_on = expense_categories.c.expense_id == Expense.id
     if filters:
         join_on = and_(join_on, *filters)
 
@@ -223,6 +236,7 @@ def summary(
             Category.color,
             func.coalesce(func.sum(Expense.amount), 0.0),
         )
+        .outerjoin(expense_categories, expense_categories.c.category_id == Category.id)
         .outerjoin(Expense, join_on)
         .group_by(Category.id, Category.name, Category.color)
         .order_by(Category.id)
@@ -251,6 +265,21 @@ def _month_bounds(year: int, month: int) -> tuple[date, date]:
     return date(year, month, 1), date(year, month, last_day)
 
 
+def _spent_by_category(
+    db: Session, start: date, end: date
+) -> dict[int, float]:
+    spent_rows = db.execute(
+        select(
+            expense_categories.c.category_id,
+            func.coalesce(func.sum(Expense.amount), 0.0),
+        )
+        .join(Expense, Expense.id == expense_categories.c.expense_id)
+        .where(Expense.date >= start, Expense.date <= end)
+        .group_by(expense_categories.c.category_id)
+    ).all()
+    return {cid: float(total) for cid, total in spent_rows}
+
+
 @app.get("/api/budgets", response_model=list[BudgetProgress])
 def list_budgets(
     db: Session = Depends(get_db),
@@ -276,12 +305,7 @@ def list_budgets(
     if not budgets:
         return []
 
-    spent_rows = db.execute(
-        select(Expense.category_id, func.coalesce(func.sum(Expense.amount), 0.0))
-        .where(Expense.date >= start, Expense.date <= end)
-        .group_by(Expense.category_id)
-    ).all()
-    spent_map = {cid: float(total) for cid, total in spent_rows}
+    spent_map = _spent_by_category(db, start, end)
 
     out: list[BudgetProgress] = []
     for budget, category in budgets:
@@ -324,17 +348,8 @@ def upsert_budget(body: BudgetUpsert, db: Session = Depends(get_db)) -> BudgetPr
 
     today = date.today()
     start, end = _month_bounds(today.year, today.month)
-    spent = (
-        db.scalar(
-            select(func.coalesce(func.sum(Expense.amount), 0.0)).where(
-                Expense.category_id == body.category_id,
-                Expense.date >= start,
-                Expense.date <= end,
-            )
-        )
-        or 0.0
-    )
-    spent_f = float(spent)
+    spent_map = _spent_by_category(db, start, end)
+    spent_f = spent_map.get(body.category_id, 0.0)
     limit = float(budget.amount)
     remaining = limit - spent_f
     pct = (spent_f / limit * 100.0) if limit > 0 else 0.0
