@@ -3,10 +3,17 @@
 
 from datetime import date
 
-from sqlalchemy import Date, Float, ForeignKey, String, UniqueConstraint
+from sqlalchemy import Column, Date, Float, ForeignKey, Integer, String, Table, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db import Base
+
+expense_tags = Table(
+    "expense_tags",
+    Base.metadata,
+    Column("expense_id", Integer, ForeignKey("expenses.id", ondelete="CASCADE"), primary_key=True),
+    Column("tag_id", Integer, ForeignKey("tags.id", ondelete="CASCADE"), primary_key=True),
+)
 
 
 class Category(Base):
@@ -23,6 +30,20 @@ class Category(Base):
     budget: Mapped["Budget | None"] = relationship(back_populates="category")
 
 
+class Tag(Base):
+    """Reusable freeform labels that can be attached to many expenses."""
+
+    __tablename__ = "tags"
+    __table_args__ = (UniqueConstraint("name", name="uq_tags_name"),)
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    name: Mapped[str] = mapped_column(String(40), nullable=False)
+
+    expenses: Mapped[list["Expense"]] = relationship(
+        secondary=expense_tags, back_populates="tags"
+    )
+
+
 class Expense(Base):
     """One spending entry. All rows belong to the same (implicit) owner."""
 
@@ -35,6 +56,9 @@ class Expense(Base):
     note: Mapped[str] = mapped_column(String(240), default="")
 
     category: Mapped["Category"] = relationship(back_populates="expenses")
+    tags: Mapped[list["Tag"]] = relationship(
+        secondary=expense_tags, back_populates="expenses"
+    )
 
 
 class Budget(Base):

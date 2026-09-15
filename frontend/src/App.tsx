@@ -4,11 +4,13 @@ import {
   createExpense,
   deleteBudget,
   deleteExpense,
+  formatTagInput,
   getBudgets,
   getCategories,
   getExpenses,
   getSummary,
   parseExpense,
+  parseTagInput,
   updateExpense,
   upsertBudget,
 } from "./api";
@@ -83,6 +85,7 @@ export default function App() {
   const [amount, setAmount] = useState("");
   const [note, setNote] = useState("");
   const [date, setDate] = useState("");
+  const [tagsInput, setTagsInput] = useState("");
 
   const [chatText, setChatText] = useState("");
   const [drafts, setDrafts] = useState<ExpenseDraft[]>([]);
@@ -93,6 +96,7 @@ export default function App() {
   const [editAmount, setEditAmount] = useState("");
   const [editNote, setEditNote] = useState("");
   const [editDate, setEditDate] = useState("");
+  const [editTagsInput, setEditTagsInput] = useState("");
   const [savingEdit, setSavingEdit] = useState(false);
 
   const [budgets, setBudgets] = useState<BudgetProgress[]>([]);
@@ -187,6 +191,7 @@ export default function App() {
         amount: d.amount,
         note: d.note,
         date: d.date,
+        tags: parseTagInput(d.tag_text ?? formatTagInput(d.tags)),
       });
       setDrafts((prev) => prev.filter((_, i) => i !== index));
       setChatText("");
@@ -215,10 +220,12 @@ export default function App() {
         amount: parsedAmount,
         note: note.trim(),
         date: date || null,
+        tags: parseTagInput(tagsInput),
       });
       setAmount("");
       setNote("");
       setDate("");
+      setTagsInput("");
       await refresh();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to create expense");
@@ -233,6 +240,7 @@ export default function App() {
     setEditAmount(String(e.amount));
     setEditNote(e.note);
     setEditDate(e.date);
+    setEditTagsInput(formatTagInput(e.tags));
   }
 
   function cancelEdit() {
@@ -255,6 +263,7 @@ export default function App() {
         amount: parsedAmount,
         note: editNote.trim(),
         date: editDate || null,
+        tags: parseTagInput(editTagsInput),
       });
       setEditingId(null);
       await refresh();
@@ -520,6 +529,15 @@ export default function App() {
                 onChange={(e) => updateDraft(i, { note: e.target.value })}
               />
             </label>
+            <label>
+              Tags
+              <input
+                type="text"
+                value={d.tag_text ?? formatTagInput(d.tags)}
+                onChange={(e) => updateDraft(i, { tag_text: e.target.value })}
+                placeholder="comma-separated, e.g. gift, travel"
+              />
+            </label>
             <button type="button" onClick={() => approveDraft(i)}>
               Approve
             </button>
@@ -566,6 +584,15 @@ export default function App() {
               value={note}
               onChange={(e) => setNote(e.target.value)}
               placeholder="optional"
+            />
+          </label>
+          <label>
+            Tags
+            <input
+              type="text"
+              value={tagsInput}
+              onChange={(e) => setTagsInput(e.target.value)}
+              placeholder="comma-separated, e.g. gift, mom"
             />
           </label>
           <label>
@@ -637,6 +664,15 @@ export default function App() {
                           onChange={(ev) => setEditNote(ev.target.value)}
                         />
                       </label>
+                      <label>
+                        Tags
+                        <input
+                          type="text"
+                          value={editTagsInput}
+                          onChange={(ev) => setEditTagsInput(ev.target.value)}
+                          placeholder="comma-separated"
+                        />
+                      </label>
                       <div className="row-actions">
                         <button type="submit" disabled={savingEdit}>
                           {savingEdit ? "Saving…" : "Save"}
@@ -656,6 +692,15 @@ export default function App() {
                     <span>
                       {e.date} · {e.category_name ?? "?"} · {formatMoney(e.amount)}
                       {e.note ? ` — ${e.note}` : ""}
+                      {e.tags.length > 0 && (
+                        <span className="tag-list">
+                          {e.tags.map((t) => (
+                            <span key={t} className="tag">
+                              {t}
+                            </span>
+                          ))}
+                        </span>
+                      )}
                     </span>
                   </span>
                   <span className="row-actions">

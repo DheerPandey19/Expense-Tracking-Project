@@ -12,6 +12,7 @@ DEFAULT_CATEGORIES = [
     ("Shopping", "#264653"),
     ("Health", "#2A9D8F"),
     ("Parents", "#9B5DE5"),
+    ("Misc", "#778DA9"),
     ("Other", "#6C757D"),
 ]
 

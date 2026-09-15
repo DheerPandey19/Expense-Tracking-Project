@@ -192,6 +192,24 @@ section {
   cursor: pointer;
 }
 
+.tag-list {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 0.25rem;
+  margin-left: 0.4rem;
+  vertical-align: middle;
+}
+
+.tag {
+  display: inline-block;
+  font-size: 0.75rem;
+  padding: 0.1rem 0.4rem;
+  border: 1px solid #ccc;
+  border-radius: 3px;
+  background: #f5f5f5;
+  color: #333;
+}
+
 .hint {
   margin: 0 0 0.75rem;
   font-size: 0.85rem;

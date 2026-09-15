@@ -6,6 +6,11 @@ export type Category = {
   color: string;
 };
 
+export type Tag = {
+  id: number;
+  name: string;
+};
+
 export type Expense = {
   id: number;
   category_id: number;
@@ -13,6 +18,7 @@ export type Expense = {
   date: string;
   note: string;
   category_name: string | null;
+  tags: string[];
 };
 
 export type ExpenseCreate = {
@@ -20,6 +26,7 @@ export type ExpenseCreate = {
   amount: number;
   date?: string | null;
   note?: string;
+  tags?: string[];
 };
 
 export type ExpenseUpdate = {
@@ -27,6 +34,7 @@ export type ExpenseUpdate = {
   amount?: number;
   date?: string | null;
   note?: string;
+  tags?: string[];
 };
 
 export type DateRange = {
@@ -52,6 +60,9 @@ export type ExpenseDraft = {
   date: string | null;
   note: string;
   confidence: string;
+  tags?: string[];
+  /** Local-only raw input while editing a draft card */
+  tag_text?: string;
 };
 
 export type ParseOut = {
@@ -73,6 +84,22 @@ export type BudgetUpsert = {
   category_id: number;
   amount: number;
 };
+
+export function parseTagInput(raw: string): string[] {
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const part of raw.split(",")) {
+    const name = part.trim().toLowerCase().replace(/\s+/g, " ");
+    if (!name || seen.has(name)) continue;
+    seen.add(name);
+    out.push(name);
+  }
+  return out;
+}
+
+export function formatTagInput(tags: string[] | undefined | null): string {
+  return (tags ?? []).join(", ");
+}
 
 function rangeQuery(range?: DateRange): string {
   if (!range) return "";
@@ -108,6 +135,10 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
 
 export function getCategories() {
   return request<Category[]>("/api/categories");
+}
+
+export function getTags() {
+  return request<Tag[]>("/api/tags");
 }
 
 export function getExpenses(range?: DateRange) {

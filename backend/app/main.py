@@ -5,10 +5,10 @@ from datetime import date
 from fastapi import Depends, FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy import and_, func, select
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, selectinload
 
 from app.db import Base, engine, get_db, ping_db
-from app.models import Budget, Category, Expense  # noqa: F401
+from app.models import Budget, Category, Expense, Tag  # noqa: F401
 from app.parse import parse_expenses
 from app.schemas import (
     BudgetProgress,
@@ -22,6 +22,7 @@ from app.schemas import (
     ParseIn,
     ParseOut,
     SummaryOut,
+    TagOut,
 )
 from app.seed import seed_categories
 
@@ -55,7 +56,20 @@ def _expense_out(expense: Expense, category_name: str | None) -> ExpenseOut:
         date=expense.date,
         note=expense.note,
         category_name=category_name,
+        tags=sorted(t.name for t in expense.tags),
     )
+
+
+def _resolve_tags(db: Session, names: list[str]) -> list[Tag]:
+    tags: list[Tag] = []
+    for name in names:
+        tag = db.scalar(select(Tag).where(Tag.name == name))
+        if not tag:
+            tag = Tag(name=name)
+            db.add(tag)
+            db.flush()
+        tags.append(tag)
+    return tags
 
 
 def _date_filters(from_date: date | None, to_date: date | None):
@@ -81,6 +95,11 @@ def list_categories(db: Session = Depends(get_db)) -> list[Category]:
     return list(db.scalars(select(Category).order_by(Category.id)).all())
 
 
+@app.get("/api/tags", response_model=list[TagOut])
+def list_tags(db: Session = Depends(get_db)) -> list[Tag]:
+    return list(db.scalars(select(Tag).order_by(Tag.name)).all())
+
+
 @app.post("/api/expenses", response_model=ExpenseOut)
 def create_expense(body: ExpenseCreate, db: Session = Depends(get_db)) -> ExpenseOut:
     category = db.get(Category, body.category_id)
@@ -94,9 +113,15 @@ def create_expense(body: ExpenseCreate, db: Session = Depends(get_db)) -> Expens
         date=body.date or date.today(),
         note=body.note.strip(),
     )
+    expense.tags = _resolve_tags(db, body.tags)
     db.add(expense)
     db.commit()
-    db.refresh(expense)
+    expense = db.scalar(
+        select(Expense)
+        .options(selectinload(Expense.tags))
+        .where(Expense.id == expense.id)
+    )
+    assert expense is not None
     return _expense_out(expense, category.name)
 
 
@@ -112,12 +137,13 @@ def list_expenses(
     stmt = (
         select(Expense, Category.name)
         .join(Category, Category.id == Expense.category_id)
+        .options(selectinload(Expense.tags))
         .order_by(Expense.date.desc(), Expense.id.desc())
     )
     for f in _date_filters(from_date, to_date):
         stmt = stmt.where(f)
 
-    rows = db.execute(stmt).all()
+    rows = db.execute(stmt).unique().all()
     return [_expense_out(e, name) for e, name in rows]
 
 
@@ -125,7 +151,11 @@ def list_expenses(
 def update_expense(
     expense_id: int, body: ExpenseUpdate, db: Session = Depends(get_db)
 ) -> ExpenseOut:
-    expense = db.get(Expense, expense_id)
+    expense = db.scalar(
+        select(Expense)
+        .options(selectinload(Expense.tags))
+        .where(Expense.id == expense_id)
+    )
     if not expense:
         raise HTTPException(status_code=404, detail="Expense not found")
 
@@ -141,9 +171,17 @@ def update_expense(
         expense.date = data["date"]
     if "note" in data and data["note"] is not None:
         expense.note = data["note"].strip()
+    if "tags" in data and data["tags"] is not None:
+        expense.tags = _resolve_tags(db, data["tags"])
 
     db.commit()
     db.refresh(expense)
+    expense = db.scalar(
+        select(Expense)
+        .options(selectinload(Expense.tags))
+        .where(Expense.id == expense_id)
+    )
+    assert expense is not None
     category = db.get(Category, expense.category_id)
     return _expense_out(expense, category.name if category else None)
 
