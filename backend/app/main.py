@@ -10,6 +10,7 @@ from sqlalchemy.orm import Session, selectinload
 from app.db import Base, engine, get_db, ping_db
 from app.models import Budget, Category, Expense, Tag, expense_categories  # noqa: F401
 from app.parse import parse_expenses
+from app.expense_service import create_expense_record
 from app.schemas import (
     BudgetProgress,
     BudgetUpsert,
@@ -127,19 +128,19 @@ def list_tags(db: Session = Depends(get_db)) -> list[Tag]:
 
 
 @app.post("/api/expenses", response_model=ExpenseOut)
-def create_expense(body: ExpenseCreate, db: Session = Depends(get_db)) -> ExpenseOut:
-    assert body.category_ids is not None
-    cats = _resolve_categories(db, body.category_ids)
-    expense = Expense(
-        category_id=body.category_ids[0],
-        amount=body.amount,
-        date=body.date or date.today(),
-        note=body.note.strip(),
-    )
-    expense.categories = cats
-    expense.tags = _resolve_tags(db, body.tags)
-    db.add(expense)
-    db.commit()
+def create_expense(
+    body: ExpenseCreate,
+    db: Session = Depends(get_db),
+) -> ExpenseOut:
+    try:
+        expense = create_expense_record(db, body)
+        db.commit()
+    except ValueError as exc:
+        db.rollback()
+        raise HTTPException(
+            status_code=404,
+            detail=str(exc),
+        ) from exc
     loaded = _load_expense(db, expense.id)
     assert loaded is not None
     return _expense_out(loaded)

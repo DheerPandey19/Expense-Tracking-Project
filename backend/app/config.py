@@ -11,5 +11,9 @@ class Settings(BaseSettings):
     openai_base_url: str = "https://api.openai.com/v1"
     openai_model: str = "gpt-4o-mini"
 
+    telegram_bot_token: str = ""
+    telegram_chat_id: int = 0
+    telegram_webhook_secret: str = ""
+
 
 settings = Settings()

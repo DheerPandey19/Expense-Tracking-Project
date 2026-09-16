@@ -18,9 +18,19 @@ def _resolve_date(text: str) -> date | None:
         return date.today()
     return None
 
+def _category_from_text(
+    text: str,
+    categories: list[dict[str, Any]],
+) -> int | None:
+    lower = text.lower()
+    for category in categories:
+        name = str(category["name"]).lower()
+        if re.search(rf"\b{re.escape(name)}\b", lower):
+            return int(category["id"])
+    return None
 
-def parse_fallback(text: str, _categories: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    """Amount/date only — never invents a category."""
+def parse_fallback(text: str, categories: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Extract amount, date, and an explicitly mentioned category."""
     chunks = [c.strip() for c in re.split(r"\band\b", text, flags=re.I) if c.strip()]
     drafts: list[dict[str, Any]] = []
     for chunk in chunks:
@@ -38,7 +48,7 @@ def parse_fallback(text: str, _categories: list[dict[str, Any]]) -> list[dict[st
         drafts.append(
             {
                 "amount": amount,
-                "category_id": None,
+                "category_id": _category_from_text(chunk, categories),
                 "date": resolved.isoformat() if resolved else None,
                 "note": " ".join(note.split()).strip()[:240],
                 "confidence": "low",

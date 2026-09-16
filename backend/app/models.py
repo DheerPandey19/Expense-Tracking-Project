@@ -1,9 +1,21 @@
 # Personal expense tracker — single-user, so no Profile/User model.
 # Categories and expenses are global to the app (one implicit owner).
 
-from datetime import date
+from datetime import date, datetime, timezone
 
-from sqlalchemy import Column, Date, Float, ForeignKey, Integer, String, Table, UniqueConstraint
+from sqlalchemy import (
+    JSON,
+    BigInteger,
+    Column,
+    Date,
+    DateTime,
+    Float,
+    ForeignKey,
+    Integer,
+    String,
+    Table,
+    UniqueConstraint,
+)
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db import Base
@@ -91,3 +103,38 @@ class Budget(Base):
     amount: Mapped[float] = mapped_column(Float, nullable=False)
 
     category: Mapped["Category"] = relationship(back_populates="budget")
+
+class TelegramPendingExpense(Base):
+    """Parsed Telegram expenses awaiting confirmation."""
+
+    __tablename__ = "telegram_pending_expenses"
+
+    id: Mapped[str] = mapped_column(String(32), primary_key=True)
+
+    update_id: Mapped[int] = mapped_column(
+        BigInteger,
+        nullable=False,
+        unique=True,
+    )
+
+    chat_id: Mapped[int] = mapped_column(
+        BigInteger,
+        nullable=False,
+    )
+
+    payload: Mapped[list[dict]] = mapped_column(
+        JSON,
+        nullable=False,
+    )
+
+    status: Mapped[str] = mapped_column(
+        String(20),
+        nullable=False,
+        default="pending",
+    )
+
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        default=lambda: datetime.now(timezone.utc),
+    )
