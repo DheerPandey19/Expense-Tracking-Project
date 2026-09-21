@@ -22,6 +22,7 @@ import type {
   ExpenseDraft,
   Summary,
 } from "./api";
+import CategoryPieChart from "./CategoryPieChart";
 import "./App.css";
 
 type Preset = "all" | "week" | "month" | "custom";
@@ -458,6 +459,7 @@ export default function App() {
         {summary ? (
           <>
             <p className="total">Total: {formatMoney(summary.total_spend)}</p>
+            <CategoryPieChart categories={summary.by_category} />
             <ul className="plain category-totals">
               {summary.by_category.map((c) => {
                 const color = c.color ?? colorById.get(c.category_id) ?? "#888";
