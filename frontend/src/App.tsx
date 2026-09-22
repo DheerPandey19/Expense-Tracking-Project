@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import type { FormEvent } from "react";
+import { NotebookPen, Wallet } from "lucide-react";
 import {
   createExpense,
   deleteBudget,
@@ -23,7 +24,11 @@ import type {
   Summary,
 } from "./api";
 import CategoryPieChart from "./CategoryPieChart";
-import "./App.css";
+import Button from "./ui/Button";
+import Card from "./ui/Card";
+import Input from "./ui/Input";
+import Select from "./ui/Select";
+import { wobblySm } from "./ui/tokens";
 
 type Preset = "all" | "week" | "month" | "custom";
 
@@ -81,6 +86,16 @@ function mergeCategoryIds(primaryId: number, extraIds: number[]): number[] {
   return out;
 }
 
+function Swatch({ color }: { color: string }) {
+  return (
+    <span
+      className="mt-0.5 inline-block h-3 w-3 shrink-0 border-2 border-ink"
+      style={{ background: color, borderRadius: wobblySm }}
+      aria-hidden
+    />
+  );
+}
+
 function CategoryExtras({
   categories,
   primaryId,
@@ -101,17 +116,21 @@ function CategoryExtras({
   }
 
   return (
-    <fieldset className="category-extras">
-      <legend>Also categories</legend>
-      <div className="checkbox-row">
+    <fieldset
+      className="border-2 border-dashed border-ink p-3"
+      style={{ borderRadius: wobblySm }}
+    >
+      <legend className="px-1 font-heading text-lg">Also categories</legend>
+      <div className="flex flex-wrap gap-3">
         {options.map((c) => (
-          <label key={c.id} className="check-label">
+          <label key={c.id} className="inline-flex items-center gap-2 text-base">
             <input
               type="checkbox"
+              className="h-4 w-4 accent-pen"
               checked={extraIds.includes(c.id)}
               onChange={() => toggle(c.id)}
             />
-            <span className="swatch" style={{ background: c.color }} aria-hidden />
+            <Swatch color={c.color} />
             {c.name}
           </label>
         ))}
@@ -399,21 +418,49 @@ export default function App() {
 
   if (loading && !summary) {
     return (
-      <main className="page">
-        <p>Loading…</p>
+      <main className="mx-auto max-w-5xl px-4 py-10 md:px-6">
+        <p className="font-heading text-2xl">Loading…</p>
       </main>
     );
   }
 
   return (
-    <main className="page">
-      <h1>Expense Tracker</h1>
+    <main className="mx-auto max-w-5xl space-y-8 px-4 py-8 md:px-6 md:py-12">
+      <header className="relative">
+        <p
+          className="mb-2 inline-block rotate-[-2deg] bg-postit px-3 py-1 text-sm border-2 border-ink"
+          style={{ borderRadius: wobblySm }}
+        >
+          sketchbook ledger
+        </p>
+        <h1 className="font-heading text-4xl md:text-6xl">
+          Expense Tracker
+          <span className="ml-1 inline-block rotate-12 text-accent" aria-hidden>
+            !
+          </span>
+        </h1>
+        <p className="mt-2 max-w-xl text-lg text-ink/80 md:text-xl">
+          Scribble spends from the web or Telegram — same notebook, same totals.
+        </p>
+        <Wallet
+          className="absolute -right-1 top-2 hidden h-14 w-14 rotate-6 text-pen md:block"
+          strokeWidth={2.5}
+          aria-hidden
+        />
+      </header>
 
-      {error && <p className="error">{error}</p>}
+      {error && (
+        <p
+          role="alert"
+          className="border-[3px] border-ink bg-accent/15 px-4 py-3 text-ink shadow-[4px_4px_0px_0px_#2d2d2d]"
+          style={{ borderRadius: wobblySm }}
+        >
+          {error}
+        </p>
+      )}
 
-      <section>
-        <h2>Period</h2>
-        <div className="presets" role="group" aria-label="Date range">
+      <Card title="Period" decoration="tape" rotate="left">
+        <div className="mb-4 flex flex-wrap gap-2" role="group" aria-label="Date range">
           {(
             [
               ["all", "All time"],
@@ -422,50 +469,48 @@ export default function App() {
               ["custom", "Custom"],
             ] as const
           ).map(([value, label]) => (
-            <button
+            <Button
               key={value}
               type="button"
-              className={preset === value ? "preset active" : "preset"}
+              variant={preset === value ? "secondary" : "ghost"}
+              className={preset === value ? "bg-pen text-white hover:bg-pen" : ""}
               onClick={() => setPreset(value)}
             >
               {label}
-            </button>
+            </Button>
           ))}
         </div>
         {preset === "custom" && (
-          <div className="range-inputs">
-            <label>
-              From
-              <input
-                type="date"
-                value={customFrom}
-                onChange={(e) => setCustomFrom(e.target.value)}
-              />
-            </label>
-            <label>
-              To
-              <input
-                type="date"
-                value={customTo}
-                onChange={(e) => setCustomTo(e.target.value)}
-              />
-            </label>
+          <div className="flex flex-wrap gap-4">
+            <Input
+              label="From"
+              type="date"
+              value={customFrom}
+              onChange={(e) => setCustomFrom(e.target.value)}
+            />
+            <Input
+              label="To"
+              type="date"
+              value={customTo}
+              onChange={(e) => setCustomTo(e.target.value)}
+            />
           </div>
         )}
-      </section>
+      </Card>
 
-      <section>
-        <h2>Summary</h2>
+      <Card title="Summary" decoration="tack">
         {summary ? (
           <>
-            <p className="total">Total: {formatMoney(summary.total_spend)}</p>
+            <p className="mb-4 font-heading text-2xl md:text-3xl">
+              Total: {formatMoney(summary.total_spend)}
+            </p>
             <CategoryPieChart categories={summary.by_category} />
-            <ul className="plain category-totals">
+            <ul className="mt-4 space-y-2">
               {summary.by_category.map((c) => {
                 const color = c.color ?? colorById.get(c.category_id) ?? "#888";
                 return (
-                  <li key={c.category_id}>
-                    <span className="swatch" style={{ background: color }} aria-hidden />
+                  <li key={c.category_id} className="flex items-center gap-2">
+                    <Swatch color={color} />
                     {c.name}: {formatMoney(c.total)}
                   </li>
                 );
@@ -475,104 +520,127 @@ export default function App() {
         ) : (
           <p>No summary yet.</p>
         )}
-      </section>
+      </Card>
 
-      <section>
-        <h2>Monthly budgets</h2>
-        <p className="hint">Limits apply to the current calendar month.</p>
+      <Card title="Monthly budgets" rotate="right">
+        <p className="mb-4 text-ink/70">Limits apply to the current calendar month.</p>
         {budgets.length > 0 && (
-          <ul className="budget-progress">
+          <ul className="mb-6 space-y-4">
             {budgets.map((b) => (
-              <li key={b.category_id} className={b.over ? "over" : undefined}>
-                <div className="budget-head">
-                  <span className="swatch" style={{ background: b.color }} aria-hidden />
+              <li key={b.category_id}>
+                <div className="mb-1 flex items-center gap-2">
+                  <Swatch color={b.color} />
                   <span>
                     {b.category_name}: {formatMoney(b.spent)} / {formatMoney(b.limit)}
-                    {b.over ? " — over" : ` · ${formatMoney(b.remaining)} left`}
+                    {b.over ? (
+                      <span className="text-accent"> — over</span>
+                    ) : (
+                      ` · ${formatMoney(b.remaining)} left`
+                    )}
                   </span>
                 </div>
-                <div className="bar" role="progressbar" aria-valuenow={Math.min(b.pct, 100)} aria-valuemin={0} aria-valuemax={100}>
+                <div
+                  className={`h-4 overflow-hidden border-2 border-ink bg-muted ${b.over ? "ring-2 ring-accent" : ""}`}
+                  style={{ borderRadius: wobblySm }}
+                  role="progressbar"
+                  aria-valuenow={Math.min(b.pct, 100)}
+                  aria-valuemin={0}
+                  aria-valuemax={100}
+                >
                   <div
-                    className="bar-fill"
-                    style={{ width: `${Math.min(b.pct, 100)}%`, background: b.color }}
+                    className="h-full"
+                    style={{
+                      width: `${Math.min(b.pct, 100)}%`,
+                      background: b.color,
+                    }}
                   />
                 </div>
               </li>
             ))}
           </ul>
         )}
-        <ul className="budget-edit">
+        <ul className="space-y-3">
           {categories.map((c) => (
-            <li key={c.id}>
-              <span className="budget-label">
-                <span className="swatch" style={{ background: c.color }} aria-hidden />
+            <li
+              key={c.id}
+              className="flex flex-wrap items-center gap-2 border-b border-dashed border-ink/30 pb-3"
+            >
+              <span className="inline-flex min-w-[7rem] items-center gap-2">
+                <Swatch color={c.color} />
                 {c.name}
               </span>
-              <input
+              <Input
                 type="number"
                 min="0.01"
                 step="0.01"
                 placeholder="limit"
+                className="max-w-[8rem]"
                 value={budgetDrafts[c.id] ?? ""}
                 onChange={(e) =>
                   setBudgetDrafts((prev) => ({ ...prev, [c.id]: e.target.value }))
                 }
               />
-              <button
+              <Button
                 type="button"
                 disabled={savingBudgetId === c.id}
                 onClick={() => saveBudget(c.id)}
               >
                 {savingBudgetId === c.id ? "…" : "Save"}
-              </button>
-              <button
+              </Button>
+              <Button
                 type="button"
-                disabled={savingBudgetId === c.id || !(budgetDrafts[c.id] || budgets.some((b) => b.category_id === c.id))}
+                variant="ghost"
+                disabled={
+                  savingBudgetId === c.id ||
+                  !(budgetDrafts[c.id] || budgets.some((b) => b.category_id === c.id))
+                }
                 onClick={() => clearBudget(c.id)}
               >
                 Clear
-              </button>
+              </Button>
             </li>
           ))}
         </ul>
-      </section>
+      </Card>
 
-      <section>
-        <h2>Chat</h2>
-        <form className="form" onSubmit={onParse}>
-          <label>
-            What did you spend?
-            <input
-              type="text"
-              value={chatText}
-              onChange={(e) => setChatText(e.target.value)}
-              placeholder="e.g. swiggy 450 yesterday"
-            />
-          </label>
-          <button type="submit" disabled={parsing}>
-            {parsing ? "Parsing…" : "Parse"}
-          </button>
+      <Card title="Chat" decoration="tape">
+        <form className="grid gap-3" onSubmit={onParse}>
+          <Input
+            label="What did you spend?"
+            type="text"
+            value={chatText}
+            onChange={(e) => setChatText(e.target.value)}
+            placeholder="e.g. swiggy 450 yesterday"
+          />
+          <div>
+            <Button type="submit" disabled={parsing}>
+              <NotebookPen strokeWidth={2.5} className="h-5 w-5" aria-hidden />
+              {parsing ? "Parsing…" : "Parse"}
+            </Button>
+          </div>
         </form>
 
         {drafts.map((d, i) => (
-          <div key={i} className="draft">
-            <strong>Review before saving</strong>
+          <div
+            key={i}
+            className="mt-5 border-[3px] border-ink bg-postit p-4 shadow-[3px_3px_0px_0px_rgba(45,45,45,0.15)]"
+            style={{ borderRadius: wobblySm }}
+          >
+            <strong className="font-heading text-xl">Review before saving</strong>
             {(d.confidence === "low" || d.category_id == null) && (
-              <p className="error">Check category before approving</p>
+              <p className="mt-1 text-accent">Check category before approving</p>
             )}
-            <label>
-              Amount
-              <input
+            <div className="mt-3 grid gap-3">
+              <Input
+                label="Amount"
                 type="number"
                 min="0.01"
                 step="0.01"
                 value={d.amount}
                 onChange={(e) => updateDraft(i, { amount: Number(e.target.value) })}
               />
-            </label>
-            <label>
-              Category
-              <select
+              <Select
+                label="Category"
                 value={d.category_id ?? ""}
                 onChange={(e) =>
                   updateDraft(i, {
@@ -586,221 +654,204 @@ export default function App() {
                     {c.name}
                   </option>
                 ))}
-              </select>
-            </label>
-            <CategoryExtras
-              categories={categories}
-              primaryId={d.category_id}
-              extraIds={draftExtraIds(d)}
-              onChange={(ids) =>
-                updateDraft(i, {
-                  category_ids:
-                    d.category_id == null
-                      ? ids
-                      : mergeCategoryIds(d.category_id, ids),
-                })
-              }
-            />
-            <label>
-              Date
-              <input
+              </Select>
+              <CategoryExtras
+                categories={categories}
+                primaryId={d.category_id}
+                extraIds={draftExtraIds(d)}
+                onChange={(ids) =>
+                  updateDraft(i, {
+                    category_ids:
+                      d.category_id == null
+                        ? ids
+                        : mergeCategoryIds(d.category_id, ids),
+                  })
+                }
+              />
+              <Input
+                label="Date"
                 type="date"
                 value={d.date ?? ""}
                 onChange={(e) => updateDraft(i, { date: e.target.value || null })}
               />
-            </label>
-            <label>
-              Note
-              <input
+              <Input
+                label="Note"
                 type="text"
                 value={d.note}
                 onChange={(e) => updateDraft(i, { note: e.target.value })}
               />
-            </label>
-            <label>
-              Tags
-              <input
+              <Input
+                label="Tags"
                 type="text"
                 value={d.tag_text ?? formatTagInput(d.tags)}
                 onChange={(e) => updateDraft(i, { tag_text: e.target.value })}
                 placeholder="comma-separated, e.g. gift, travel"
               />
-            </label>
-            <button type="button" onClick={() => approveDraft(i)}>
-              Approve
-            </button>
-            <button type="button" onClick={() => rejectDraft(i)}>
-              Reject
-            </button>
+              <div className="flex flex-wrap gap-2">
+                <Button type="button" onClick={() => approveDraft(i)}>
+                  Approve
+                </Button>
+                <Button type="button" variant="ghost" onClick={() => rejectDraft(i)}>
+                  Reject
+                </Button>
+              </div>
+            </div>
           </div>
         ))}
-      </section>
+      </Card>
 
-      <section>
-        <h2>Add expense</h2>
-        <form className="form" onSubmit={onSubmit}>
-          <label>
-            Category
-            <select
-              value={categoryId}
-              onChange={(e) => {
-                const next = e.target.value;
-                setCategoryId(next);
-                const primary = Number(next);
-                setExtraCategoryIds((prev) => prev.filter((id) => id !== primary));
-              }}
-              required
-            >
-              {categories.map((c) => (
-                <option key={c.id} value={c.id}>
-                  {c.name}
-                </option>
-              ))}
-            </select>
-          </label>
+      <Card title="Add expense" rotate="left">
+        <form className="grid gap-3" onSubmit={onSubmit}>
+          <Select
+            label="Category"
+            value={categoryId}
+            onChange={(e) => {
+              const next = e.target.value;
+              setCategoryId(next);
+              const primary = Number(next);
+              setExtraCategoryIds((prev) => prev.filter((id) => id !== primary));
+            }}
+            required
+          >
+            {categories.map((c) => (
+              <option key={c.id} value={c.id}>
+                {c.name}
+              </option>
+            ))}
+          </Select>
           <CategoryExtras
             categories={categories}
             primaryId={categoryId ? Number(categoryId) : null}
             extraIds={extraCategoryIds}
             onChange={setExtraCategoryIds}
           />
-          <label>
-            Amount
-            <input
-              type="number"
-              min="0.01"
-              step="0.01"
-              value={amount}
-              onChange={(e) => setAmount(e.target.value)}
-              required
-            />
-          </label>
-          <label>
-            Note
-            <input
-              type="text"
-              maxLength={240}
-              value={note}
-              onChange={(e) => setNote(e.target.value)}
-              placeholder="optional"
-            />
-          </label>
-          <label>
-            Tags
-            <input
-              type="text"
-              value={tagsInput}
-              onChange={(e) => setTagsInput(e.target.value)}
-              placeholder="comma-separated, e.g. gift, mom"
-            />
-          </label>
-          <label>
-            Date
-            <input
-              type="date"
-              value={date}
-              onChange={(e) => setDate(e.target.value)}
-            />
-          </label>
-          <button type="submit" disabled={submitting}>
-            {submitting ? "Saving…" : "Add"}
-          </button>
+          <Input
+            label="Amount"
+            type="number"
+            min="0.01"
+            step="0.01"
+            value={amount}
+            onChange={(e) => setAmount(e.target.value)}
+            required
+          />
+          <Input
+            label="Note"
+            type="text"
+            maxLength={240}
+            value={note}
+            onChange={(e) => setNote(e.target.value)}
+            placeholder="optional"
+          />
+          <Input
+            label="Tags"
+            type="text"
+            value={tagsInput}
+            onChange={(e) => setTagsInput(e.target.value)}
+            placeholder="comma-separated, e.g. gift, mom"
+          />
+          <Input
+            label="Date"
+            type="date"
+            value={date}
+            onChange={(e) => setDate(e.target.value)}
+          />
+          <div>
+            <Button type="submit" disabled={submitting}>
+              {submitting ? "Saving…" : "Add"}
+            </Button>
+          </div>
         </form>
-      </section>
+      </Card>
 
-      <section>
-        <h2>Expenses</h2>
+      <Card title="Expenses" decoration="tack">
         {expenses.length === 0 ? (
           <p>No expenses in this period.</p>
         ) : (
-          <ul className="expenses">
+          <ul className="space-y-3">
             {expenses.map((e) => {
               const color = colorById.get(e.category_id) ?? "#888";
               if (editingId === e.id) {
                 return (
-                  <li key={e.id} className="expense-edit">
-                    <form className="form edit-form" onSubmit={saveEdit}>
-                      <label>
-                        Category
-                        <select
-                          value={editCategoryId}
-                          onChange={(ev) => {
-                            const next = ev.target.value;
-                            setEditCategoryId(next);
-                            const primary = Number(next);
-                            setEditExtraCategoryIds((prev) =>
-                              prev.filter((id) => id !== primary),
-                            );
-                          }}
-                          required
-                        >
-                          {categories.map((c) => (
-                            <option key={c.id} value={c.id}>
-                              {c.name}
-                            </option>
-                          ))}
-                        </select>
-                      </label>
+                  <li
+                    key={e.id}
+                    className="border-[3px] border-ink bg-muted/40 p-4"
+                    style={{ borderRadius: wobblySm }}
+                  >
+                    <form className="grid gap-3" onSubmit={saveEdit}>
+                      <Select
+                        label="Category"
+                        value={editCategoryId}
+                        onChange={(ev) => {
+                          const next = ev.target.value;
+                          setEditCategoryId(next);
+                          const primary = Number(next);
+                          setEditExtraCategoryIds((prev) =>
+                            prev.filter((id) => id !== primary),
+                          );
+                        }}
+                        required
+                      >
+                        {categories.map((c) => (
+                          <option key={c.id} value={c.id}>
+                            {c.name}
+                          </option>
+                        ))}
+                      </Select>
                       <CategoryExtras
                         categories={categories}
                         primaryId={editCategoryId ? Number(editCategoryId) : null}
                         extraIds={editExtraCategoryIds}
                         onChange={setEditExtraCategoryIds}
                       />
-                      <label>
-                        Amount
-                        <input
-                          type="number"
-                          min="0.01"
-                          step="0.01"
-                          value={editAmount}
-                          onChange={(ev) => setEditAmount(ev.target.value)}
-                          required
-                        />
-                      </label>
-                      <label>
-                        Date
-                        <input
-                          type="date"
-                          value={editDate}
-                          onChange={(ev) => setEditDate(ev.target.value)}
-                          required
-                        />
-                      </label>
-                      <label>
-                        Note
-                        <input
-                          type="text"
-                          maxLength={240}
-                          value={editNote}
-                          onChange={(ev) => setEditNote(ev.target.value)}
-                        />
-                      </label>
-                      <label>
-                        Tags
-                        <input
-                          type="text"
-                          value={editTagsInput}
-                          onChange={(ev) => setEditTagsInput(ev.target.value)}
-                          placeholder="comma-separated"
-                        />
-                      </label>
-                      <div className="row-actions">
-                        <button type="submit" disabled={savingEdit}>
+                      <Input
+                        label="Amount"
+                        type="number"
+                        min="0.01"
+                        step="0.01"
+                        value={editAmount}
+                        onChange={(ev) => setEditAmount(ev.target.value)}
+                        required
+                      />
+                      <Input
+                        label="Date"
+                        type="date"
+                        value={editDate}
+                        onChange={(ev) => setEditDate(ev.target.value)}
+                        required
+                      />
+                      <Input
+                        label="Note"
+                        type="text"
+                        maxLength={240}
+                        value={editNote}
+                        onChange={(ev) => setEditNote(ev.target.value)}
+                      />
+                      <Input
+                        label="Tags"
+                        type="text"
+                        value={editTagsInput}
+                        onChange={(ev) => setEditTagsInput(ev.target.value)}
+                        placeholder="comma-separated"
+                      />
+                      <div className="flex flex-wrap gap-2">
+                        <Button type="submit" disabled={savingEdit}>
                           {savingEdit ? "Saving…" : "Save"}
-                        </button>
-                        <button type="button" onClick={cancelEdit}>
+                        </Button>
+                        <Button type="button" variant="ghost" onClick={cancelEdit}>
                           Cancel
-                        </button>
+                        </Button>
                       </div>
                     </form>
                   </li>
                 );
               }
               return (
-                <li key={e.id}>
-                  <span className="expense-main">
-                    <span className="swatch" style={{ background: color }} aria-hidden />
+                <li
+                  key={e.id}
+                  className="flex flex-wrap items-start justify-between gap-3 border-b-2 border-dashed border-ink/25 pb-3"
+                >
+                  <span className="flex min-w-0 items-start gap-2">
+                    <Swatch color={color} />
                     <span>
                       {e.date} ·{" "}
                       {(e.categories?.length
@@ -809,9 +860,13 @@ export default function App() {
                       · {formatMoney(e.amount)}
                       {e.note ? ` — ${e.note}` : ""}
                       {e.tags.length > 0 && (
-                        <span className="tag-list">
+                        <span className="mt-1 flex flex-wrap gap-1">
                           {e.tags.map((t) => (
-                            <span key={t} className="tag">
+                            <span
+                              key={t}
+                              className="inline-block border-2 border-ink bg-postit px-2 text-sm"
+                              style={{ borderRadius: wobblySm }}
+                            >
                               {t}
                             </span>
                           ))}
@@ -819,20 +874,20 @@ export default function App() {
                       )}
                     </span>
                   </span>
-                  <span className="row-actions">
-                    <button type="button" onClick={() => startEdit(e)}>
+                  <span className="flex shrink-0 gap-2">
+                    <Button type="button" variant="secondary" onClick={() => startEdit(e)}>
                       Edit
-                    </button>
-                    <button type="button" onClick={() => onDelete(e.id)}>
+                    </Button>
+                    <Button type="button" variant="danger" onClick={() => onDelete(e.id)}>
                       Delete
-                    </button>
+                    </Button>
                   </span>
                 </li>
               );
             })}
           </ul>
         )}
-      </section>
+      </Card>
     </main>
   );
 }

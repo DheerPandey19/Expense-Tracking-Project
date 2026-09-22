@@ -1,4 +1,5 @@
 import type { CategoryTotal } from "./api";
+import { wobblySm } from "./ui/tokens";
 
 type Props = {
   categories: CategoryTotal[];
@@ -52,7 +53,7 @@ export default function CategoryPieChart({ categories, total }: Props) {
       : slices.reduce((sum, c) => sum + c.total, 0);
 
   if (slices.length === 0 || spendTotal <= 0) {
-    return <p className="pie-empty">No spending in this range to chart.</p>;
+    return <p className="text-ink/70">No spending in this range to chart.</p>;
   }
 
   const size = 180;
@@ -69,6 +70,8 @@ export default function CategoryPieChart({ categories, total }: Props) {
         cy={cy}
         r={r}
         fill={slices[0].color}
+        stroke="#2d2d2d"
+        strokeWidth="3"
       />
     ) : (
       slices.map((slice) => {
@@ -81,15 +84,17 @@ export default function CategoryPieChart({ categories, total }: Props) {
             key={slice.category_id}
             d={describeSlice(cx, cy, r, startAngle, endAngle)}
             fill={slice.color}
+            stroke="#2d2d2d"
+            strokeWidth="2"
           />
         );
       })
     );
 
   return (
-    <div className="pie-chart">
+    <div className="flex flex-wrap items-center gap-4 md:gap-6">
       <svg
-        className="pie-svg"
+        className="shrink-0 rotate-[-2deg]"
         viewBox={`0 0 ${size} ${size}`}
         width={size}
         height={size}
@@ -98,20 +103,19 @@ export default function CategoryPieChart({ categories, total }: Props) {
       >
         {paths}
       </svg>
-      <ul className="pie-legend">
+      <ul className="min-w-0 flex-1 basis-40 space-y-2">
         {slices.map((slice) => {
           const pct = (slice.total / spendTotal) * 100;
           return (
-            <li key={slice.category_id}>
+            <li key={slice.category_id} className="flex items-start gap-2 text-base md:text-lg">
               <span
-                className="swatch"
-                style={{ background: slice.color }}
+                className="mt-1 inline-block h-3 w-3 shrink-0 border-2 border-ink"
+                style={{ background: slice.color, borderRadius: wobblySm }}
                 aria-hidden
               />
-              <span className="pie-legend-label">
-                {slice.name}
-                <span className="pie-legend-meta">
-                  {" "}
+              <span>
+                {slice.name}{" "}
+                <span className="text-ink/60">
                   {formatMoney(slice.total)} · {pct.toFixed(0)}%
                 </span>
               </span>

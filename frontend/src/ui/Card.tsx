@@ -3,7 +3,7 @@ import { wobblyMd } from "./tokens";
 
 type Decoration = "none" | "tape" | "tack";
 
-type Props = HTMLAttributes<HTMLElement> & {
+type Props = Omit<HTMLAttributes<HTMLElement>, "title"> & {
   as?: "section" | "div" | "article";
   decoration?: Decoration;
   title?: string;
