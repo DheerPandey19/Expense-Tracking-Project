@@ -1,8 +1,51 @@
-* {
-  box-sizing: border-box;
+@import "tailwindcss";
+
+@theme {
+  --color-paper: #fdfbf7;
+  --color-ink: #2d2d2d;
+  --color-muted: #e5e0d8;
+  --color-accent: #ff4d4d;
+  --color-pen: #2d5da1;
+  --color-postit: #fff9c4;
+  --color-card: #ffffff;
+
+  --font-heading: "Kalam", cursive;
+  --font-body: "Patrick Hand", cursive;
+
+  --radius-wobbly: 255px 15px 225px 15px / 15px 225px 15px 255px;
+  --radius-wobbly-md: 25px 255px 15px 225px / 225px 15px 255px 25px;
+  --radius-wobbly-sm: 15px 40px 20px 35px / 35px 20px 40px 15px;
 }
 
-body {
-  margin: 0;
-  background: #f7f7f7;
+@layer base {
+  * {
+    box-sizing: border-box;
+  }
+
+  body {
+    margin: 0;
+    min-height: 100vh;
+    color: var(--color-ink);
+    font-family: var(--font-body);
+    font-size: 1.125rem;
+    line-height: 1.45;
+    background-color: var(--color-paper);
+    background-image: radial-gradient(var(--color-muted) 1px, transparent 1px);
+    background-size: 24px 24px;
+  }
+
+  h1,
+  h2,
+  h3 {
+    font-family: var(--font-heading);
+    font-weight: 700;
+    line-height: 1.2;
+  }
+
+  button,
+  input,
+  select,
+  textarea {
+    font: inherit;
+  }
 }
