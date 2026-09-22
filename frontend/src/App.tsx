@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import type { FormEvent } from "react";
-import { NotebookPen, Wallet } from "lucide-react";
+import { NotebookPen, PiggyBank, Wallet, X } from "lucide-react";
 import {
   createExpense,
   deleteBudget,
@@ -174,6 +174,21 @@ export default function App() {
   const [budgets, setBudgets] = useState<BudgetProgress[]>([]);
   const [budgetDrafts, setBudgetDrafts] = useState<Record<number, string>>({});
   const [savingBudgetId, setSavingBudgetId] = useState<number | null>(null);
+  const [budgetsOpen, setBudgetsOpen] = useState(false);
+
+  useEffect(() => {
+    if (!budgetsOpen) return;
+    function onKey(e: KeyboardEvent) {
+      if (e.key === "Escape") setBudgetsOpen(false);
+    }
+    window.addEventListener("keydown", onKey);
+    const prev = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    return () => {
+      window.removeEventListener("keydown", onKey);
+      document.body.style.overflow = prev;
+    };
+  }, [budgetsOpen]);
 
   const dateRange = useMemo(
     () => rangeForPreset(preset, customFrom, customTo),
@@ -427,12 +442,24 @@ export default function App() {
   return (
     <main className="mx-auto max-w-5xl space-y-8 px-4 py-8 md:px-6 md:py-12">
       <header className="relative">
-        <p
-          className="mb-2 inline-block rotate-[-2deg] bg-postit px-3 py-1 text-sm border-2 border-ink"
-          style={{ borderRadius: wobblySm }}
-        >
-          sketchbook ledger
-        </p>
+        <div className="mb-3 flex flex-wrap items-start justify-between gap-3">
+          <p
+            className="inline-block rotate-[-2deg] bg-postit px-3 py-1 text-sm border-2 border-ink"
+            style={{ borderRadius: wobblySm }}
+          >
+            sketchbook ledger
+          </p>
+          <Button
+            type="button"
+            variant="secondary"
+            aria-expanded={budgetsOpen}
+            aria-controls="budgets-sidebar"
+            onClick={() => setBudgetsOpen(true)}
+          >
+            <PiggyBank strokeWidth={2.5} className="h-5 w-5" aria-hidden />
+            Budgets
+          </Button>
+        </div>
         <h1 className="font-heading text-4xl md:text-6xl">
           Expense Tracker
           <span className="ml-1 inline-block rotate-12 text-accent" aria-hidden>
@@ -443,7 +470,7 @@ export default function App() {
           Scribble spends from the web or Telegram — same notebook, same totals.
         </p>
         <Wallet
-          className="absolute -right-1 top-2 hidden h-14 w-14 rotate-6 text-pen md:block"
+          className="absolute -right-1 top-16 hidden h-14 w-14 rotate-6 text-pen md:block"
           strokeWidth={2.5}
           aria-hidden
         />
@@ -504,104 +531,156 @@ export default function App() {
             <p className="mb-4 font-heading text-2xl md:text-3xl">
               Total: {formatMoney(summary.total_spend)}
             </p>
-            <CategoryPieChart categories={summary.by_category} />
-            <ul className="mt-4 space-y-2">
-              {summary.by_category.map((c) => {
-                const color = c.color ?? colorById.get(c.category_id) ?? "#888";
-                return (
-                  <li key={c.category_id} className="flex items-center gap-2">
-                    <Swatch color={color} />
-                    {c.name}: {formatMoney(c.total)}
-                  </li>
-                );
-              })}
-            </ul>
+            <div className="grid items-start gap-6 md:grid-cols-[minmax(0,1.4fr)_minmax(0,1fr)] md:gap-8">
+              <CategoryPieChart categories={summary.by_category} />
+              <ul className="columns-1 gap-x-6 space-y-2 sm:columns-2 md:columns-1 lg:columns-2">
+                {summary.by_category.map((c) => {
+                  const color = c.color ?? colorById.get(c.category_id) ?? "#888";
+                  return (
+                    <li
+                      key={c.category_id}
+                      className="mb-2 flex break-inside-avoid items-center gap-2"
+                    >
+                      <Swatch color={color} />
+                      {c.name}: {formatMoney(c.total)}
+                    </li>
+                  );
+                })}
+              </ul>
+            </div>
           </>
         ) : (
           <p>No summary yet.</p>
         )}
       </Card>
 
-      <Card title="Monthly budgets" rotate="right">
-        <p className="mb-4 text-ink/70">Limits apply to the current calendar month.</p>
-        {budgets.length > 0 && (
-          <ul className="mb-6 space-y-4">
-            {budgets.map((b) => (
-              <li key={b.category_id}>
-                <div className="mb-1 flex items-center gap-2">
-                  <Swatch color={b.color} />
-                  <span>
-                    {b.category_name}: {formatMoney(b.spent)} / {formatMoney(b.limit)}
-                    {b.over ? (
-                      <span className="text-accent"> — over</span>
-                    ) : (
-                      ` · ${formatMoney(b.remaining)} left`
-                    )}
-                  </span>
-                </div>
-                <div
-                  className={`h-4 overflow-hidden border-2 border-ink bg-muted ${b.over ? "ring-2 ring-accent" : ""}`}
-                  style={{ borderRadius: wobblySm }}
-                  role="progressbar"
-                  aria-valuenow={Math.min(b.pct, 100)}
-                  aria-valuemin={0}
-                  aria-valuemax={100}
+      {budgetsOpen && (
+        <div className="fixed inset-0 z-40 flex justify-end">
+          <button
+            type="button"
+            className="absolute inset-0 bg-ink/30"
+            aria-label="Close budgets sidebar"
+            onClick={() => setBudgetsOpen(false)}
+          />
+          <aside
+            id="budgets-sidebar"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="budgets-sidebar-title"
+            className="relative z-50 flex h-full w-full max-w-md flex-col border-l-[3px] border-ink bg-card shadow-[-8px_0_0_0_#2d2d2d]"
+          >
+            <div className="flex items-start justify-between gap-3 border-b-2 border-dashed border-ink/30 p-4 md:p-5">
+              <div>
+                <h2
+                  id="budgets-sidebar-title"
+                  className="font-heading text-2xl md:text-3xl"
                 >
-                  <div
-                    className="h-full"
-                    style={{
-                      width: `${Math.min(b.pct, 100)}%`,
-                      background: b.color,
-                    }}
-                  />
-                </div>
-              </li>
-            ))}
-          </ul>
-        )}
-        <ul className="space-y-3">
-          {categories.map((c) => (
-            <li
-              key={c.id}
-              className="flex flex-wrap items-center gap-2 border-b border-dashed border-ink/30 pb-3"
-            >
-              <span className="inline-flex min-w-[7rem] items-center gap-2">
-                <Swatch color={c.color} />
-                {c.name}
-              </span>
-              <Input
-                type="number"
-                min="0.01"
-                step="0.01"
-                placeholder="limit"
-                className="max-w-[8rem]"
-                value={budgetDrafts[c.id] ?? ""}
-                onChange={(e) =>
-                  setBudgetDrafts((prev) => ({ ...prev, [c.id]: e.target.value }))
-                }
-              />
-              <Button
-                type="button"
-                disabled={savingBudgetId === c.id}
-                onClick={() => saveBudget(c.id)}
-              >
-                {savingBudgetId === c.id ? "…" : "Save"}
-              </Button>
+                  Monthly budgets
+                </h2>
+                <p className="mt-1 text-base text-ink/70">
+                  Limits apply to the current calendar month.
+                </p>
+              </div>
               <Button
                 type="button"
                 variant="ghost"
-                disabled={
-                  savingBudgetId === c.id ||
-                  !(budgetDrafts[c.id] || budgets.some((b) => b.category_id === c.id))
-                }
-                onClick={() => clearBudget(c.id)}
+                className="min-h-10 shrink-0 px-3"
+                aria-label="Close"
+                onClick={() => setBudgetsOpen(false)}
               >
-                Clear
+                <X strokeWidth={3} className="h-5 w-5" aria-hidden />
               </Button>
-            </li>
-          ))}
-        </ul>
-      </Card>
+            </div>
+
+            <div className="flex-1 overflow-y-auto p-4 md:p-5">
+              {budgets.length > 0 && (
+                <ul className="mb-6 space-y-4">
+                  {budgets.map((b) => (
+                    <li key={b.category_id}>
+                      <div className="mb-1 flex items-center gap-2">
+                        <Swatch color={b.color} />
+                        <span>
+                          {b.category_name}: {formatMoney(b.spent)} /{" "}
+                          {formatMoney(b.limit)}
+                          {b.over ? (
+                            <span className="text-accent"> — over</span>
+                          ) : (
+                            ` · ${formatMoney(b.remaining)} left`
+                          )}
+                        </span>
+                      </div>
+                      <div
+                        className={`h-4 overflow-hidden border-2 border-ink bg-muted ${b.over ? "ring-2 ring-accent" : ""}`}
+                        style={{ borderRadius: wobblySm }}
+                        role="progressbar"
+                        aria-valuenow={Math.min(b.pct, 100)}
+                        aria-valuemin={0}
+                        aria-valuemax={100}
+                      >
+                        <div
+                          className="h-full"
+                          style={{
+                            width: `${Math.min(b.pct, 100)}%`,
+                            background: b.color,
+                          }}
+                        />
+                      </div>
+                    </li>
+                  ))}
+                </ul>
+              )}
+              <ul className="space-y-3">
+                {categories.map((c) => (
+                  <li
+                    key={c.id}
+                    className="flex flex-wrap items-center gap-2 border-b border-dashed border-ink/30 pb-3"
+                  >
+                    <span className="inline-flex min-w-[6.5rem] items-center gap-2">
+                      <Swatch color={c.color} />
+                      {c.name}
+                    </span>
+                    <Input
+                      type="number"
+                      min="0.01"
+                      step="0.01"
+                      placeholder="limit"
+                      className="max-w-[7.5rem]"
+                      value={budgetDrafts[c.id] ?? ""}
+                      onChange={(e) =>
+                        setBudgetDrafts((prev) => ({
+                          ...prev,
+                          [c.id]: e.target.value,
+                        }))
+                      }
+                    />
+                    <Button
+                      type="button"
+                      disabled={savingBudgetId === c.id}
+                      onClick={() => saveBudget(c.id)}
+                    >
+                      {savingBudgetId === c.id ? "…" : "Save"}
+                    </Button>
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      disabled={
+                        savingBudgetId === c.id ||
+                        !(
+                          budgetDrafts[c.id] ||
+                          budgets.some((b) => b.category_id === c.id)
+                        )
+                      }
+                      onClick={() => clearBudget(c.id)}
+                    >
+                      Clear
+                    </Button>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          </aside>
+        </div>
+      )}
 
       <Card title="Chat" decoration="tape">
         <form className="grid gap-3" onSubmit={onParse}>
