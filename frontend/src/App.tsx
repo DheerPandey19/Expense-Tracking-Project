@@ -486,43 +486,149 @@ export default function App() {
         </p>
       )}
 
-      <Card title="Period" decoration="tape" rotate="left">
-        <div className="mb-4 flex flex-wrap gap-2" role="group" aria-label="Date range">
-          {(
-            [
-              ["all", "All time"],
-              ["week", "This week"],
-              ["month", "This month"],
-              ["custom", "Custom"],
-            ] as const
-          ).map(([value, label]) => (
-            <Button
-              key={value}
-              type="button"
-              variant={preset === value ? "secondary" : "ghost"}
-              className={preset === value ? "bg-pen text-white hover:bg-pen" : ""}
-              onClick={() => setPreset(value)}
-            >
-              {label}
-            </Button>
-          ))}
+      <Card title="Log a spend" decoration="tape" rotate="left">
+        <div className="mb-4">
+          <p className="mb-2 font-heading text-lg text-ink/80">Period</p>
+          <div className="flex flex-wrap gap-2" role="group" aria-label="Date range">
+            {(
+              [
+                ["all", "All time"],
+                ["week", "This week"],
+                ["month", "This month"],
+                ["custom", "Custom"],
+              ] as const
+            ).map(([value, label]) => (
+              <Button
+                key={value}
+                type="button"
+                variant={preset === value ? "secondary" : "ghost"}
+                className={preset === value ? "bg-pen text-white hover:bg-pen" : ""}
+                onClick={() => setPreset(value)}
+              >
+                {label}
+              </Button>
+            ))}
+          </div>
+          {preset === "custom" && (
+            <div className="mt-3 flex flex-wrap gap-4">
+              <Input
+                label="From"
+                type="date"
+                value={customFrom}
+                onChange={(e) => setCustomFrom(e.target.value)}
+              />
+              <Input
+                label="To"
+                type="date"
+                value={customTo}
+                onChange={(e) => setCustomTo(e.target.value)}
+              />
+            </div>
+          )}
         </div>
-        {preset === "custom" && (
-          <div className="flex flex-wrap gap-4">
+
+        <div
+          className="mb-4 border-t-2 border-dashed border-ink/30 pt-4"
+          aria-hidden
+        />
+
+        <form
+          className="flex flex-col gap-3 sm:flex-row sm:items-end"
+          onSubmit={onParse}
+        >
+          <div className="min-w-0 flex-1">
             <Input
-              label="From"
-              type="date"
-              value={customFrom}
-              onChange={(e) => setCustomFrom(e.target.value)}
-            />
-            <Input
-              label="To"
-              type="date"
-              value={customTo}
-              onChange={(e) => setCustomTo(e.target.value)}
+              label="What did you spend?"
+              type="text"
+              value={chatText}
+              onChange={(e) => setChatText(e.target.value)}
+              placeholder="e.g. swiggy 450 yesterday"
             />
           </div>
-        )}
+          <Button type="submit" disabled={parsing} className="sm:mb-0.5">
+            <NotebookPen strokeWidth={2.5} className="h-5 w-5" aria-hidden />
+            {parsing ? "Parsing…" : "Parse"}
+          </Button>
+        </form>
+
+        {drafts.map((d, i) => (
+          <div
+            key={i}
+            className="mt-5 border-[3px] border-ink bg-postit p-4 shadow-[3px_3px_0px_0px_rgba(45,45,45,0.15)]"
+            style={{ borderRadius: wobblySm }}
+          >
+            <strong className="font-heading text-xl">Review before saving</strong>
+            {(d.confidence === "low" || d.category_id == null) && (
+              <p className="mt-1 text-accent">Check category before approving</p>
+            )}
+            <div className="mt-3 grid gap-3">
+              <Input
+                label="Amount"
+                type="number"
+                min="0.01"
+                step="0.01"
+                value={d.amount}
+                onChange={(e) => updateDraft(i, { amount: Number(e.target.value) })}
+              />
+              <Select
+                label="Category"
+                value={d.category_id ?? ""}
+                onChange={(e) =>
+                  updateDraft(i, {
+                    category_id: e.target.value ? Number(e.target.value) : null,
+                  })
+                }
+              >
+                <option value="">Select…</option>
+                {categories.map((c) => (
+                  <option key={c.id} value={c.id}>
+                    {c.name}
+                  </option>
+                ))}
+              </Select>
+              <CategoryExtras
+                categories={categories}
+                primaryId={d.category_id}
+                extraIds={draftExtraIds(d)}
+                onChange={(ids) =>
+                  updateDraft(i, {
+                    category_ids:
+                      d.category_id == null
+                        ? ids
+                        : mergeCategoryIds(d.category_id, ids),
+                  })
+                }
+              />
+              <Input
+                label="Date"
+                type="date"
+                value={d.date ?? ""}
+                onChange={(e) => updateDraft(i, { date: e.target.value || null })}
+              />
+              <Input
+                label="Note"
+                type="text"
+                value={d.note}
+                onChange={(e) => updateDraft(i, { note: e.target.value })}
+              />
+              <Input
+                label="Tags"
+                type="text"
+                value={d.tag_text ?? formatTagInput(d.tags)}
+                onChange={(e) => updateDraft(i, { tag_text: e.target.value })}
+                placeholder="comma-separated, e.g. gift, travel"
+              />
+              <div className="flex flex-wrap gap-2">
+                <Button type="button" onClick={() => approveDraft(i)}>
+                  Approve
+                </Button>
+                <Button type="button" variant="ghost" onClick={() => rejectDraft(i)}>
+                  Reject
+                </Button>
+              </div>
+            </div>
+          </div>
+        ))}
       </Card>
 
       <Card title="Summary" decoration="tack">
@@ -681,103 +787,6 @@ export default function App() {
           </aside>
         </div>
       )}
-
-      <Card title="Chat" decoration="tape">
-        <form className="grid gap-3" onSubmit={onParse}>
-          <Input
-            label="What did you spend?"
-            type="text"
-            value={chatText}
-            onChange={(e) => setChatText(e.target.value)}
-            placeholder="e.g. swiggy 450 yesterday"
-          />
-          <div>
-            <Button type="submit" disabled={parsing}>
-              <NotebookPen strokeWidth={2.5} className="h-5 w-5" aria-hidden />
-              {parsing ? "Parsing…" : "Parse"}
-            </Button>
-          </div>
-        </form>
-
-        {drafts.map((d, i) => (
-          <div
-            key={i}
-            className="mt-5 border-[3px] border-ink bg-postit p-4 shadow-[3px_3px_0px_0px_rgba(45,45,45,0.15)]"
-            style={{ borderRadius: wobblySm }}
-          >
-            <strong className="font-heading text-xl">Review before saving</strong>
-            {(d.confidence === "low" || d.category_id == null) && (
-              <p className="mt-1 text-accent">Check category before approving</p>
-            )}
-            <div className="mt-3 grid gap-3">
-              <Input
-                label="Amount"
-                type="number"
-                min="0.01"
-                step="0.01"
-                value={d.amount}
-                onChange={(e) => updateDraft(i, { amount: Number(e.target.value) })}
-              />
-              <Select
-                label="Category"
-                value={d.category_id ?? ""}
-                onChange={(e) =>
-                  updateDraft(i, {
-                    category_id: e.target.value ? Number(e.target.value) : null,
-                  })
-                }
-              >
-                <option value="">Select…</option>
-                {categories.map((c) => (
-                  <option key={c.id} value={c.id}>
-                    {c.name}
-                  </option>
-                ))}
-              </Select>
-              <CategoryExtras
-                categories={categories}
-                primaryId={d.category_id}
-                extraIds={draftExtraIds(d)}
-                onChange={(ids) =>
-                  updateDraft(i, {
-                    category_ids:
-                      d.category_id == null
-                        ? ids
-                        : mergeCategoryIds(d.category_id, ids),
-                  })
-                }
-              />
-              <Input
-                label="Date"
-                type="date"
-                value={d.date ?? ""}
-                onChange={(e) => updateDraft(i, { date: e.target.value || null })}
-              />
-              <Input
-                label="Note"
-                type="text"
-                value={d.note}
-                onChange={(e) => updateDraft(i, { note: e.target.value })}
-              />
-              <Input
-                label="Tags"
-                type="text"
-                value={d.tag_text ?? formatTagInput(d.tags)}
-                onChange={(e) => updateDraft(i, { tag_text: e.target.value })}
-                placeholder="comma-separated, e.g. gift, travel"
-              />
-              <div className="flex flex-wrap gap-2">
-                <Button type="button" onClick={() => approveDraft(i)}>
-                  Approve
-                </Button>
-                <Button type="button" variant="ghost" onClick={() => rejectDraft(i)}>
-                  Reject
-                </Button>
-              </div>
-            </div>
-          </div>
-        ))}
-      </Card>
 
       <Card title="Add expense" rotate="left">
         <form className="grid gap-3" onSubmit={onSubmit}>
