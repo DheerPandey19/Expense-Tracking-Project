@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import type { FormEvent } from "react";
-import { NotebookPen, PiggyBank, Wallet, X } from "lucide-react";
+import { List, NotebookPen, PiggyBank, Wallet, X } from "lucide-react";
 import {
   createExpense,
   deleteBudget,
@@ -175,11 +175,15 @@ export default function App() {
   const [budgetDrafts, setBudgetDrafts] = useState<Record<number, string>>({});
   const [savingBudgetId, setSavingBudgetId] = useState<number | null>(null);
   const [budgetsOpen, setBudgetsOpen] = useState(false);
+  const [expensesOpen, setExpensesOpen] = useState(false);
 
   useEffect(() => {
-    if (!budgetsOpen) return;
+    if (!budgetsOpen && !expensesOpen) return;
     function onKey(e: KeyboardEvent) {
-      if (e.key === "Escape") setBudgetsOpen(false);
+      if (e.key === "Escape") {
+        setBudgetsOpen(false);
+        setExpensesOpen(false);
+      }
     }
     window.addEventListener("keydown", onKey);
     const prev = document.body.style.overflow;
@@ -188,7 +192,7 @@ export default function App() {
       window.removeEventListener("keydown", onKey);
       document.body.style.overflow = prev;
     };
-  }, [budgetsOpen]);
+  }, [budgetsOpen, expensesOpen]);
 
   const dateRange = useMemo(
     () => rangeForPreset(preset, customFrom, customTo),
@@ -449,16 +453,34 @@ export default function App() {
           >
             sketchbook ledger
           </p>
-          <Button
-            type="button"
-            variant="secondary"
-            aria-expanded={budgetsOpen}
-            aria-controls="budgets-sidebar"
-            onClick={() => setBudgetsOpen(true)}
-          >
-            <PiggyBank strokeWidth={2.5} className="h-5 w-5" aria-hidden />
-            Budgets
-          </Button>
+          <div className="flex flex-wrap gap-2">
+            <Button
+              type="button"
+              variant="secondary"
+              aria-expanded={expensesOpen}
+              aria-controls="expenses-sidebar"
+              onClick={() => {
+                setBudgetsOpen(false);
+                setExpensesOpen(true);
+              }}
+            >
+              <List strokeWidth={2.5} className="h-5 w-5" aria-hidden />
+              Expenses
+            </Button>
+            <Button
+              type="button"
+              variant="secondary"
+              aria-expanded={budgetsOpen}
+              aria-controls="budgets-sidebar"
+              onClick={() => {
+                setExpensesOpen(false);
+                setBudgetsOpen(true);
+              }}
+            >
+              <PiggyBank strokeWidth={2.5} className="h-5 w-5" aria-hidden />
+              Budgets
+            </Button>
+          </div>
         </div>
         <h1 className="font-heading text-4xl md:text-6xl">
           Expense Tracker
@@ -851,131 +873,186 @@ export default function App() {
         </form>
       </Card>
 
-      <Card title="Expenses" decoration="tack">
-        {expenses.length === 0 ? (
-          <p>No expenses in this period.</p>
-        ) : (
-          <ul className="space-y-3">
-            {expenses.map((e) => {
-              const color = colorById.get(e.category_id) ?? "#888";
-              if (editingId === e.id) {
-                return (
-                  <li
-                    key={e.id}
-                    className="border-[3px] border-ink bg-muted/40 p-4"
-                    style={{ borderRadius: wobblySm }}
-                  >
-                    <form className="grid gap-3" onSubmit={saveEdit}>
-                      <Select
-                        label="Category"
-                        value={editCategoryId}
-                        onChange={(ev) => {
-                          const next = ev.target.value;
-                          setEditCategoryId(next);
-                          const primary = Number(next);
-                          setEditExtraCategoryIds((prev) =>
-                            prev.filter((id) => id !== primary),
-                          );
-                        }}
-                        required
-                      >
-                        {categories.map((c) => (
-                          <option key={c.id} value={c.id}>
-                            {c.name}
-                          </option>
-                        ))}
-                      </Select>
-                      <CategoryExtras
-                        categories={categories}
-                        primaryId={editCategoryId ? Number(editCategoryId) : null}
-                        extraIds={editExtraCategoryIds}
-                        onChange={setEditExtraCategoryIds}
-                      />
-                      <Input
-                        label="Amount"
-                        type="number"
-                        min="0.01"
-                        step="0.01"
-                        value={editAmount}
-                        onChange={(ev) => setEditAmount(ev.target.value)}
-                        required
-                      />
-                      <Input
-                        label="Date"
-                        type="date"
-                        value={editDate}
-                        onChange={(ev) => setEditDate(ev.target.value)}
-                        required
-                      />
-                      <Input
-                        label="Note"
-                        type="text"
-                        maxLength={240}
-                        value={editNote}
-                        onChange={(ev) => setEditNote(ev.target.value)}
-                      />
-                      <Input
-                        label="Tags"
-                        type="text"
-                        value={editTagsInput}
-                        onChange={(ev) => setEditTagsInput(ev.target.value)}
-                        placeholder="comma-separated"
-                      />
-                      <div className="flex flex-wrap gap-2">
-                        <Button type="submit" disabled={savingEdit}>
-                          {savingEdit ? "Saving…" : "Save"}
-                        </Button>
-                        <Button type="button" variant="ghost" onClick={cancelEdit}>
-                          Cancel
-                        </Button>
-                      </div>
-                    </form>
-                  </li>
-                );
-              }
-              return (
-                <li
-                  key={e.id}
-                  className="flex flex-wrap items-start justify-between gap-3 border-b-2 border-dashed border-ink/25 pb-3"
+      {expensesOpen && (
+        <div className="fixed inset-0 z-40 flex justify-end">
+          <button
+            type="button"
+            className="absolute inset-0 bg-ink/30"
+            aria-label="Close expenses sidebar"
+            onClick={() => setExpensesOpen(false)}
+          />
+          <aside
+            id="expenses-sidebar"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="expenses-sidebar-title"
+            className="relative z-50 flex h-full w-full max-w-lg flex-col border-l-[3px] border-ink bg-card shadow-[-8px_0_0_0_#2d2d2d]"
+          >
+            <div className="flex items-start justify-between gap-3 border-b-2 border-dashed border-ink/30 p-4 md:p-5">
+              <div>
+                <h2
+                  id="expenses-sidebar-title"
+                  className="font-heading text-2xl md:text-3xl"
                 >
-                  <span className="flex min-w-0 items-start gap-2">
-                    <Swatch color={color} />
-                    <span>
-                      {e.date} ·{" "}
-                      {(e.categories?.length
-                        ? e.categories.map((c) => c.name).join(" · ")
-                        : e.category_name) ?? "?"}{" "}
-                      · {formatMoney(e.amount)}
-                      {e.note ? ` — ${e.note}` : ""}
-                      {e.tags.length > 0 && (
-                        <span className="mt-1 flex flex-wrap gap-1">
-                          {e.tags.map((t) => (
-                            <span
-                              key={t}
-                              className="inline-block border-2 border-ink bg-postit px-2 text-sm"
-                              style={{ borderRadius: wobblySm }}
+                  Expenses
+                </h2>
+                <p className="mt-1 text-base text-ink/70">
+                  Entries for the selected period.
+                </p>
+              </div>
+              <Button
+                type="button"
+                variant="ghost"
+                className="min-h-10 shrink-0 px-3"
+                aria-label="Close"
+                onClick={() => setExpensesOpen(false)}
+              >
+                <X strokeWidth={3} className="h-5 w-5" aria-hidden />
+              </Button>
+            </div>
+
+            <div className="flex-1 overflow-y-auto p-4 md:p-5">
+              {expenses.length === 0 ? (
+                <p>No expenses in this period.</p>
+              ) : (
+                <ul className="space-y-3">
+                  {expenses.map((e) => {
+                    const color = colorById.get(e.category_id) ?? "#888";
+                    if (editingId === e.id) {
+                      return (
+                        <li
+                          key={e.id}
+                          className="border-[3px] border-ink bg-muted/40 p-4"
+                          style={{ borderRadius: wobblySm }}
+                        >
+                          <form className="grid gap-3" onSubmit={saveEdit}>
+                            <Select
+                              label="Category"
+                              value={editCategoryId}
+                              onChange={(ev) => {
+                                const next = ev.target.value;
+                                setEditCategoryId(next);
+                                const primary = Number(next);
+                                setEditExtraCategoryIds((prev) =>
+                                  prev.filter((id) => id !== primary),
+                                );
+                              }}
+                              required
                             >
-                              {t}
-                            </span>
-                          ))}
+                              {categories.map((c) => (
+                                <option key={c.id} value={c.id}>
+                                  {c.name}
+                                </option>
+                              ))}
+                            </Select>
+                            <CategoryExtras
+                              categories={categories}
+                              primaryId={
+                                editCategoryId ? Number(editCategoryId) : null
+                              }
+                              extraIds={editExtraCategoryIds}
+                              onChange={setEditExtraCategoryIds}
+                            />
+                            <Input
+                              label="Amount"
+                              type="number"
+                              min="0.01"
+                              step="0.01"
+                              value={editAmount}
+                              onChange={(ev) => setEditAmount(ev.target.value)}
+                              required
+                            />
+                            <Input
+                              label="Date"
+                              type="date"
+                              value={editDate}
+                              onChange={(ev) => setEditDate(ev.target.value)}
+                              required
+                            />
+                            <Input
+                              label="Note"
+                              type="text"
+                              maxLength={240}
+                              value={editNote}
+                              onChange={(ev) => setEditNote(ev.target.value)}
+                            />
+                            <Input
+                              label="Tags"
+                              type="text"
+                              value={editTagsInput}
+                              onChange={(ev) => setEditTagsInput(ev.target.value)}
+                              placeholder="comma-separated"
+                            />
+                            <div className="flex flex-wrap gap-2">
+                              <Button type="submit" disabled={savingEdit}>
+                                {savingEdit ? "Saving…" : "Save"}
+                              </Button>
+                              <Button
+                                type="button"
+                                variant="ghost"
+                                onClick={cancelEdit}
+                              >
+                                Cancel
+                              </Button>
+                            </div>
+                          </form>
+                        </li>
+                      );
+                    }
+                    return (
+                      <li
+                        key={e.id}
+                        className="flex flex-wrap items-start justify-between gap-3 border-b-2 border-dashed border-ink/25 pb-3"
+                      >
+                        <span className="flex min-w-0 items-start gap-2">
+                          <Swatch color={color} />
+                          <span>
+                            {e.date} ·{" "}
+                            {(e.categories?.length
+                              ? e.categories.map((c) => c.name).join(" · ")
+                              : e.category_name) ?? "?"}{" "}
+                            · {formatMoney(e.amount)}
+                            {e.note ? ` — ${e.note}` : ""}
+                            {e.tags.length > 0 && (
+                              <span className="mt-1 flex flex-wrap gap-1">
+                                {e.tags.map((t) => (
+                                  <span
+                                    key={t}
+                                    className="inline-block border-2 border-ink bg-postit px-2 text-sm"
+                                    style={{ borderRadius: wobblySm }}
+                                  >
+                                    {t}
+                                  </span>
+                                ))}
+                              </span>
+                            )}
+                          </span>
                         </span>
-                      )}
-                    </span>
-                  </span>
-                  <span className="flex shrink-0 gap-2">
-                    <Button type="button" variant="secondary" onClick={() => startEdit(e)}>
-                      Edit
-                    </Button>
-                    <Button type="button" variant="danger" onClick={() => onDelete(e.id)}>
-                      Delete
-                    </Button>
-                  </span>
-                </li>
-              );
-            })}
-          </ul>
-        )}
-      </Card>
+                        <span className="flex shrink-0 gap-2">
+                          <Button
+                            type="button"
+                            variant="secondary"
+                            onClick={() => startEdit(e)}
+                          >
+                            Edit
+                          </Button>
+                          <Button
+                            type="button"
+                            variant="danger"
+                            onClick={() => onDelete(e.id)}
+                          >
+                            Delete
+                          </Button>
+                        </span>
+                      </li>
+                    );
+                  })}
+                </ul>
+              )}
+            </div>
+          </aside>
+        </div>
+      )}
     </main>
   );
 }
