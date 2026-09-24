@@ -5,6 +5,7 @@ import httpx
 from fastapi import Depends, FastAPI, Header, HTTPException
 from sqlalchemy import select
 from sqlalchemy.orm import Session
+from sqlalchemy.orm.attributes import flag_modified
 
 from app.config import settings
 from app.db import Base, SessionLocal, engine, get_db, ping_db
@@ -84,6 +85,54 @@ def confirmation_text(
     return "\n".join(lines)
 
 
+def category_lookup(db: Session) -> tuple[list[dict], dict[int, str]]:
+    categories = list(
+        db.scalars(select(Category).order_by(Category.id)).all()
+    )
+    category_data = [
+        {"id": category.id, "name": category.name}
+        for category in categories
+    ]
+    category_names = {
+        category.id: category.name for category in categories
+    }
+    return category_data, category_names
+
+
+def parse_drafts_from_text(
+    text: str,
+    category_data: list[dict],
+) -> tuple[list[ExpenseDraft] | None, str | None]:
+    raw_drafts = parse_expenses(text, category_data)
+    drafts = [ExpenseDraft(**draft) for draft in raw_drafts]
+
+    if not drafts:
+        return None, "I could not find an expense amount in that message."
+
+    if any(draft.category_id is None for draft in drafts):
+        return (
+            None,
+            "I could not determine the category. "
+            "Please rephrase the expense with more detail.",
+        )
+
+    return drafts, None
+
+
+def find_editing_pending(
+    db: Session,
+    chat_id: int,
+) -> TelegramPendingExpense | None:
+    return db.scalar(
+        select(TelegramPendingExpense)
+        .where(
+            TelegramPendingExpense.chat_id == chat_id,
+            TelegramPendingExpense.status == "editing",
+        )
+        .order_by(TelegramPendingExpense.created_at.desc())
+    )
+
+
 def send_confirmation(
     pending: TelegramPendingExpense,
     category_names: dict[int, str],
@@ -94,6 +143,10 @@ def send_confirmation(
                 {
                     "text": "Confirm",
                     "callback_data": f"confirm:{pending.id}",
+                },
+                {
+                    "text": "Edit",
+                    "callback_data": f"edit:{pending.id}",
                 },
                 {
                     "text": "Cancel",
@@ -108,6 +161,51 @@ def send_confirmation(
         confirmation_text(pending.payload, category_names),
         keyboard,
     )
+
+
+def send_edit_prompt(
+    pending: TelegramPendingExpense,
+    message_id: int | None = None,
+) -> None:
+    text = (
+        "Send the corrected expense in natural language.\n"
+        "Example: Spent 400 on dinner yesterday."
+    )
+    keyboard = {
+        "inline_keyboard": [
+            [
+                {
+                    "text": "Cancel",
+                    "callback_data": f"cancel:{pending.id}",
+                },
+            ]
+        ]
+    }
+
+    if message_id is not None:
+        telegram_request(
+            "editMessageText",
+            {
+                "chat_id": pending.chat_id,
+                "message_id": message_id,
+                "text": text,
+                "reply_markup": keyboard,
+            },
+        )
+        return
+
+    send_message(pending.chat_id, text, keyboard)
+
+
+def apply_drafts_to_pending(
+    pending: TelegramPendingExpense,
+    drafts: list[ExpenseDraft],
+) -> None:
+    pending.payload = [
+        draft.model_dump(mode="json") for draft in drafts
+    ]
+    flag_modified(pending, "payload")
+    pending.status = "pending"
 
 
 def handle_message(update: dict, db: Session) -> None:
@@ -131,20 +229,19 @@ def handle_message(update: dict, db: Session) -> None:
         send_message(chat_id, "Please send a text message.")
         return
 
-    categories = list(
-        db.scalars(
-            select(Category).order_by(Category.id)
-        ).all()
-    )
+    category_data, category_names = category_lookup(db)
 
-    category_data = [
-        {"id": category.id, "name": category.name}
-        for category in categories
-    ]
-    category_names = {
-        category.id: category.name
-        for category in categories
-    }
+    editing = find_editing_pending(db, chat_id)
+    if editing is not None:
+        drafts, error = parse_drafts_from_text(text, category_data)
+        if error is not None:
+            send_message(chat_id, f"{error}\n\nOr tap Cancel to abort.")
+            return
+
+        apply_drafts_to_pending(editing, drafts)
+        db.commit()
+        send_confirmation(editing, category_names)
+        return
 
     existing = db.scalar(
         select(TelegramPendingExpense).where(
@@ -157,26 +254,9 @@ def handle_message(update: dict, db: Session) -> None:
             send_confirmation(existing, category_names)
         return
 
-    raw_drafts = parse_expenses(text, category_data)
-    drafts = [ExpenseDraft(**draft) for draft in raw_drafts]
-
-    if not drafts:
-        send_message(
-            chat_id,
-            "I could not find an expense amount in that message.",
-        )
-        return
-
-    missing_category = any(
-        draft.category_id is None for draft in drafts
-    )
-
-    if missing_category:
-        send_message(
-            chat_id,
-            "I could not determine the category. "
-            "Please rephrase the expense with more detail.",
-        )
+    drafts, error = parse_drafts_from_text(text, category_data)
+    if error is not None:
+        send_message(chat_id, error)
         return
 
     pending = TelegramPendingExpense(
@@ -221,15 +301,42 @@ def handle_callback(callback: dict, db: Session) -> None:
     if pending is None or pending.chat_id != chat_id:
         return
 
-    if pending.status != "pending":
-        result = f"This request is already {pending.status}."
+    if pending.status not in ("pending", "editing"):
+        telegram_request(
+            "editMessageText",
+            {
+                "chat_id": chat_id,
+                "message_id": message_id,
+                "text": f"This request is already {pending.status}.",
+            },
+        )
+        return
 
-    elif action == "cancel":
+    if action == "cancel":
         pending.status = "cancelled"
         db.commit()
-        result = "Expense cancelled."
+        telegram_request(
+            "editMessageText",
+            {
+                "chat_id": chat_id,
+                "message_id": message_id,
+                "text": "Expense cancelled.",
+            },
+        )
+        return
 
-    elif action == "confirm":
+    if action == "edit":
+        if pending.status != "pending":
+            return
+        pending.status = "editing"
+        db.commit()
+        send_edit_prompt(pending, message_id=message_id)
+        return
+
+    if action == "confirm":
+        if pending.status != "pending":
+            return
+
         try:
             for draft in pending.payload:
                 body = ExpenseCreate(
@@ -249,17 +356,15 @@ def handle_callback(callback: dict, db: Session) -> None:
             db.rollback()
             result = "Could not save the expense. Please try again."
 
-    else:
+        telegram_request(
+            "editMessageText",
+            {
+                "chat_id": chat_id,
+                "message_id": message_id,
+                "text": result,
+            },
+        )
         return
-
-    telegram_request(
-        "editMessageText",
-        {
-            "chat_id": chat_id,
-            "message_id": message_id,
-            "text": result,
-        },
-    )
 
 
 @app.get("/health")
